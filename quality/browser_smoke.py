@@ -253,9 +253,10 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             "document.querySelector('#orbitaCloudDashboardStatus')?.textContent.includes('0 registro(s) na nuvem')"
         )
         other_page.wait_for_function(
-            "document.querySelector('#orbitaTelegramStatus')?.textContent.includes('Nenhum registro do Telegram')"
+            "document.querySelector('#orbitaTelegramStatus')?.textContent.includes('Exibindo 0 de 0')"
         )
-        assert other_page.locator("#orbitaTelegramList li").count() == 0
+        assert "Nenhum registro do Telegram nesta conta" in other_page.locator("#orbitaTelegramList").inner_text()
+        assert other_page.locator("#orbitaTelegramList .orbita-telegram-empty").count() == 1
         assert other_page.evaluate(
             "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
         ) == 0
