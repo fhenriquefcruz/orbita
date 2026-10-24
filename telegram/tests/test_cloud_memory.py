@@ -59,3 +59,21 @@ class TestCloudMemory(unittest.TestCase):
         with patch.object(self.mem,'_call',return_value=[]) as call:
             self.assertFalse(self.mem.claim_update(100))
             self.assertIn('ignore-duplicates',call.call_args.kwargs['prefer'])
+
+    def test_stage_reply_persists_before_send_and_checks_state(self):
+        with patch.object(self.mem, '_call', return_value=[{'status': 'replied'}]) as call:
+            self.mem.stage_reply(90, 'Resposta')
+        self.assertEqual(call.call_args.kwargs['value']['status'], 'replied')
+        self.assertEqual(call.call_args.kwargs['query']['status'], 'eq.received')
+        with patch.object(self.mem, '_call', return_value=[]):
+            with self.assertRaises(RuntimeError):
+                self.mem.stage_reply(90, 'Resposta')
+
+    def test_finish_requires_replied_and_ack(self):
+        with patch.object(self.mem, '_call', return_value=[{'status': 'processed'}]) as call:
+            self.mem.finish_update(90)
+        self.assertEqual(call.call_args.kwargs['value']['status'], 'processed')
+        self.assertEqual(call.call_args.kwargs['query']['status'], 'eq.replied')
+        with patch.object(self.mem, '_call', return_value=[]):
+            with self.assertRaises(RuntimeError):
+                self.mem.finish_update(90)

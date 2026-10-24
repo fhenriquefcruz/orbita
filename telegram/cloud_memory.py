@@ -127,10 +127,28 @@ class CloudMemory:
             prefer="resolution=ignore-duplicates,return=representation")
         return bool(rows)
 
-    def finish_update(self, update_id: int, answer: str) -> None:
-        self._call("orbita_telegram_updates", "PATCH", query={
-            "update_id": "eq." + str(int(update_id)), "user_id": "eq." + self.user_id,
-        }, value={"status": "processed", "response": answer[:4000]}, prefer="return=minimal")
+    def stage_reply(self, update_id: int, answer: str) -> None:
+        """Persiste a resposta ANTES do envio; falhas no Telegram podem ser repetidas."""
+        if not answer:
+            raise ValueError("Resposta vazia nao pode ser enviada")
+        rows = self._call("orbita_telegram_updates", "PATCH", query={
+            "update_id": "eq." + str(int(update_id)),
+            "user_id": "eq." + self.user_id,
+            "status": "eq.received",
+        }, value={"status": "replied", "response": answer[:3900]},
+            prefer="return=representation")
+        if len(rows) != 1:
+            raise RuntimeError("Nao foi possivel registrar resposta para reenvio")
+
+    def finish_update(self, update_id: int) -> None:
+        """Confirma processamento apenas quando sendMessage foi concluido."""
+        rows = self._call("orbita_telegram_updates", "PATCH", query={
+            "update_id": "eq." + str(int(update_id)),
+            "user_id": "eq." + self.user_id,
+            "status": "eq.replied",
+        }, value={"status": "processed"}, prefer="return=representation")
+        if len(rows) != 1:
+            raise RuntimeError("Nao foi possivel confirmar entrega Telegram")
 
     def get_update(self, update_id: int):
         rows = self._call("orbita_telegram_updates", query={
