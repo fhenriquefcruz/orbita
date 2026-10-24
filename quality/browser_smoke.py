@@ -111,11 +111,16 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.wait_for_function(
             "document.querySelector('#orbitaCloudDashboardStatus')?.textContent.includes('2 registro(s) na nuvem')"
         )
+        assert page.locator("#orbitaCloudBridge").count() == 1
+        # A faixa é exibida na visão geral, não na rota /records.
+        page.locator('.mobile-nav button[data-view="home"]').click()
         assert page.locator("#orbitaCloudBridge").is_visible()
         page.locator("#orbitaCloudInspect").click()
         page.wait_for_function(
             "document.querySelector('#orbitaCloudChecked')?.textContent.startsWith('Conferido')"
         )
+        page.locator('.mobile-nav button[data-view="records"]').click()
+        assert page.locator("#view-records").is_visible()
         # Validação de scroll horizontal também depois da autenticação.
         for responsive_width in (320,360,390,428,768,1024,1440,1920):
             page.set_viewport_size({"width":responsive_width,"height":844})
