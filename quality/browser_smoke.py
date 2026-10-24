@@ -39,11 +39,18 @@ def mock_api(route):
     if path.startswith("/token?grant_type=password"):
         email = json.loads(req.post_data or "{}").get("email", "")
         owner_id = OTHER if email.startswith("other") else OWNER
-        body = {"access_token": "test_access_token",
+        access_token = "test_access_token_other" if owner_id == OTHER else "test_access_token_owner"
+        body = {"access_token": access_token,
                 "refresh_token": "test_refresh_token", "expires_in": 3600,
                 "user": {"id": owner_id, "email": email}}
     elif path == "/user":
-        body = {"id": OWNER, "email": "owner@example.test"}
+        token = req.headers.get("authorization", "")
+        if token == "Bearer test_access_token_other":
+            body = {"id": OTHER, "email": "other@example.test"}
+        elif token == "Bearer test_access_token_owner":
+            body = {"id": OWNER, "email": "owner@example.test"}
+        else:
+            return route.fulfill(status=401, body='{"error":"unauthorized"}', headers=headers)
     elif path.startswith("/logout"):
         body = {}
     else:
@@ -66,18 +73,23 @@ def mock_rest(route):
         return route.fulfill(status=204, headers=headers)
     assert req.method == "GET", "A prévia do Telegram não deve gravar registros"
     assert "/rest/v1/orbita_records?" in req.url
-    assert req.headers.get("authorization") == "Bearer test_access_token"
+    authorization = req.headers.get("authorization")
+    assert authorization in ("Bearer test_access_token_owner", "Bearer test_access_token_other")
+    is_other = authorization == "Bearer test_access_token_other"
     query = parse_qs(urlsplit(req.url).query)
     if "payload->>source" in query:
         assert query["payload->>source"] == ["eq.Telegram ORBITA"]
         assert query["limit"] == ["5"]
         assert req.headers.get("prefer") != "count=exact"
-        telegram = [{"id": "tg-1", "updated_at": "2026-10-24T20:11:00Z",
+        telegram = [] if is_other else [{"id": "tg-1", "updated_at": "2026-10-24T20:11:00Z",
                      "payload": {"id": "tg-1", "source": "Telegram ORBITA",
                                  "title": '<img src=x onerror=alert(1)>',
                                  "type": "tarefa", "priority": "P1", "status": "a_fazer"}}]
         return route.fulfill(status=200, headers=headers, body=json.dumps(telegram))
     assert req.headers.get("prefer") == "count=exact"
+    if is_other:
+        headers["Content-Range"] = "*/0"
+        return route.fulfill(status=200, headers=headers, body="[]")
     return route.fulfill(status=206, headers=headers, body='[{"id":"teste"}]')
 
 with ReusableServer(("127.0.0.1", 0), Quiet) as server:
@@ -174,8 +186,48 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.locator("#orbitaSignOut").click()
         page.locator("#orbitaAuthRoot").wait_for(state="visible")
         assert page.locator(".layout").is_hidden(), "Protected shell exposed on logout"
+
+        # Mesmo navegador: o vínculo local impede trocar o titular de registros.
+        page.locator("#orbitaAuthEmail").fill("other@example.test")
+        page.locator("#orbitaAuthPassword").fill("strong-password-example")
+        page.locator("#orbitaAuthLogin button[type=submit]").click()
+        page.wait_for_function(
+            "document.querySelector('#orbitaAuthStatus')?.textContent.includes('outra conta ORBITA')"
+        )
+        assert page.locator(".layout").is_hidden()
         assert not errors, errors
         context.close()
-        print("Browser smoke: 8 viewports, auth gate, login, protected route, reload, logout: OK")
+
+        # Outra sessão independente: Auth /user precisa devolver a identidade própria.
+        # Mock API simula que registros do proprietário NÃO existem nesta conta.
+        isolated = browser.new_context(viewport={"width": 390, "height": 844})
+        other_page = isolated.new_page()
+        other_errors = []
+        other_page.on("pageerror", lambda err: other_errors.append(str(err)))
+        other_page.route("**/cloud-config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
+                 "',publishableKey:'sb_publishable_public_test'};"))
+        other_page.route(ORIGIN + "/**", mock_api)
+        other_page.route(ORIGIN + "/rest/v1/**", mock_rest)
+        other_page.goto(url + "#/data", wait_until="networkidle")
+        other_page.locator("#orbitaAuthEmail").fill("other@example.test")
+        other_page.locator("#orbitaAuthPassword").fill("strong-password-example")
+        other_page.locator("#orbitaAuthLogin button[type=submit]").click()
+        other_page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        assert "other@example.test" in other_page.locator("#orbitaCloudAccount").inner_text()
+        other_page.wait_for_function(
+            "document.querySelector('#orbitaCloudDashboardStatus')?.textContent.includes('0 registro(s) na nuvem')"
+        )
+        other_page.wait_for_function(
+            "document.querySelector('#orbitaTelegramStatus')?.textContent.includes('Nenhum registro do Telegram')"
+        )
+        assert other_page.locator("#orbitaTelegramList li").count() == 0
+        assert other_page.evaluate(
+            "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
+        ) == 0
+        assert not other_errors, other_errors
+        isolated.close()
+        print("Browser smoke: 8 viewports, Auth, Telegram read-only, troca de conta bloqueada e sessão separada: OK")
         browser.close()
     server.shutdown()
