@@ -437,3 +437,44 @@ html[data-orbita-theme="night"] .orbita-cloud-bridge-body small{color:#A6B4CE}
 @media(max-width:370px) {
   .orbita-cloud-bridge-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}
 }
+
+
+/* ORBITA 3.4 — Prévia autenticada e somente leitura do Telegram */
+.orbita-telegram-preview{
+  margin:19px 0 8px;padding:18px;border:1px solid #DAE0F4;
+  background:linear-gradient(135deg,#F9FAFF,#F5F6FD);border-radius:16px;min-width:0;
+}
+.orbita-telegram-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+.orbita-telegram-heading h3{font:800 15px/1.4 var(--orbita-heading);margin:0 0 5px;color:#243152}
+.orbita-telegram-heading p{margin:0;line-height:1.6}
+.orbita-telegram-heading .btn{flex:none;min-height:36px;font-size:11px}
+.orbita-telegram-preview #orbitaTelegramStatus{margin:15px 0 9px;color:#556381;line-height:1.6}
+.orbita-telegram-list{list-style:none;display:grid;gap:8px;margin:0;padding:0}
+.orbita-telegram-item{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;
+  padding:12px 13px;border:1px solid #E3E8F5;border-radius:12px;background:#FFFFFF;
+}
+.orbita-telegram-item-info{min-width:0;display:grid;gap:4px}
+.orbita-telegram-item-info strong{font:750 12px/1.5 var(--orbita-heading);color:#243152;overflow-wrap:anywhere}
+.orbita-telegram-item-info small{font-size:10px;color:#71809D}
+.orbita-telegram-state{
+  flex:none;display:inline-flex;align-items:center;border-radius:20px;padding:6px 10px;
+  background:#FFF2DB;color:#805614;font-size:10px;font-weight:800;
+}
+.orbita-telegram-state.is-done{background:#E1F4E8;color:#286748}
+html[data-orbita-theme="night"] .orbita-telegram-preview{
+  background:linear-gradient(135deg,#222C47,#1E2740);border-color:#3E4A69
+}
+html[data-orbita-theme="night"] .orbita-telegram-heading h3,
+html[data-orbita-theme="night"] .orbita-telegram-item-info strong{color:#EEF2FF}
+html[data-orbita-theme="night"] .orbita-telegram-preview #orbitaTelegramStatus{color:#C0CEE6}
+html[data-orbita-theme="night"] .orbita-telegram-item{background:#18243B;border-color:#3E4B68}
+html[data-orbita-theme="night"] .orbita-telegram-item-info small{color:#A8B9D6}
+@media(max-width:470px){
+  .orbita-telegram-preview{padding:13px;border-radius:14px}
+  .orbita-telegram-heading{gap:10px}
+  .orbita-telegram-heading h3{font-size:13px}
+  .orbita-telegram-heading .btn{padding:7px 10px}
+  .orbita-telegram-item{align-items:flex-start;flex-wrap:wrap;gap:8px}
+  .orbita-telegram-state{margin-left:auto}
+}
