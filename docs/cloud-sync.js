@@ -189,18 +189,81 @@
       '. Verifique o backup; operações remotas anteriores à falha podem ter sido aplicadas.'); }
     finally { busy = false; renderButtons(); }
   }
+  let telegramInspecting = false;
+  function telegramNode(tag, className, content) {
+    const node = document.createElement(tag);
+    node.className = className;
+    node.textContent = content;
+    return node;
+  }
+  async function inspectTelegram() {
+    if (!auth.isAuthenticated() || busy || telegramInspecting) return;
+    const status = el('orbitaTelegramStatus');
+    const list = el('orbitaTelegramList');
+    const refresh = el('orbitaTelegramRefresh');
+    if (!status || !list || !refresh) return;
+    telegramInspecting = true;
+    refresh.disabled = true;
+    status.textContent = 'Consultando registros do Telegram na sua conta...';
+    list.replaceChildren();
+    try {
+      // RLS no Supabase limita o resultado à conta autenticada no painel.
+      // JSONB filtra na origem; nenhuma chave privilegiada é exposta no cliente.
+      const query = new URLSearchParams();
+      query.set('select', 'id,payload,updated_at');
+      query.set('payload->>source', 'eq.Telegram ORBITA');
+      query.set('order', 'updated_at.desc,id.asc');
+      query.set('limit', '5');
+      const rows = await request('/rest/v1/orbita_records?' + query.toString());
+      if (!Array.isArray(rows)) throw Error('Resposta inesperada do servidor');
+      const valid = rows.filter(row => row && row.payload &&
+        row.payload.id === row.id && row.payload.source === 'Telegram ORBITA');
+      if (!valid.length) {
+        status.textContent = 'Nenhum registro do Telegram encontrado nesta conta. Verifique se o painel usa a mesma conta Auth configurada no bot.';
+        return;
+      }
+      status.textContent = 'Últimos ' + valid.length +
+        ' registro(s) do Telegram · consulta somente de leitura.';
+      for (const row of valid) {
+        const p = row.payload;
+        const item = telegramNode('li', 'orbita-telegram-item', '');
+        const info = telegramNode('div', 'orbita-telegram-item-info', '');
+        info.append(telegramNode('strong', '', String(p.title || 'Sem título')));
+        const kind = p.type === 'ideia' ? 'Ideia' : p.type === 'tarefa' ? 'Tarefa' : 'Registro';
+        const priority = /^P[0-3]$/.test(p.priority || '') ? p.priority : '';
+        info.append(telegramNode('small', '', kind + (priority ? ' · ' + priority : '')));
+        const completed = p.status === 'concluida';
+        const label = telegramNode('span', 'orbita-telegram-state' +
+          (completed ? ' is-done' : ''), completed ? 'Concluída' : 'Em aberto');
+        item.append(info, label);
+        list.append(item);
+      }
+    } catch (_) {
+      status.textContent = 'Não foi possível consultar os registros do Telegram. Os dados locais não foram alterados.';
+    } finally {
+      telegramInspecting = false;
+      refresh.disabled = !auth.isAuthenticated();
+    }
+  }
   function buildPanel() {
     const parent = document.getElementById('view-data');
     if (!parent) return;
     const card = document.createElement('section');
     card.className = 'card orbita-cloud-panel';
     card.innerHTML = '<div class="sectionhead"><h2>Memória central</h2><span class="chip">SUPABASE · RLS</span></div>' +
-      '<p class="small muted">Sua conta está autenticada. Dados deste navegador só serão enviados após confirmação da conciliação. O Telegram poderá compartilhar a base quando o backend estiver configurado.</p>' +
+      '<p class="small muted">Sua conta está autenticada. Dados deste navegador só serão enviados após confirmação da conciliação. O Telegram registra dados diretamente na memória central. Você pode conferi-los abaixo; a inclusão na lista e nos indicadores deste aparelho continua manual, após backup.</p>' +
       '<p class="small" id="orbitaCloudAccount"></p>' +
       '<p class="small" id="orbitaCloudStatus" role="status" aria-live="polite"></p>' +
+      '<div class="orbita-telegram-preview" aria-labelledby="orbitaTelegramTitle">' +
+      '<div class="orbita-telegram-heading"><div><h3 id="orbitaTelegramTitle">Recebidos do Telegram</h3>' +
+      '<p class="small muted">Prévia segura da sua nuvem — sem importar ou alterar registros neste aparelho.</p></div>' +
+      '<button type="button" class="btn sm" id="orbitaTelegramRefresh">Atualizar</button></div>' +
+      '<p class="small" id="orbitaTelegramStatus" role="status" aria-live="polite">Aguardando autenticação...</p>' +
+      '<ul class="orbita-telegram-list" id="orbitaTelegramList" aria-label="Últimos registros do Telegram"></ul></div>' +
       '<div class="actions orbita-cloud-actions"><button id="orbitaCloudSync" type="button" class="btn primary">Conciliar registros agora</button></div>';
     parent.append(card);
     el('orbitaCloudSync').addEventListener('click', sync);
+    el('orbitaTelegramRefresh').addEventListener('click', inspectTelegram);
     mode(allowed ? 'Aguardando autenticação para sincronizar.' : 'O projeto exclusivo do ORBITA ainda não está configurado.');
     renderButtons();
     auth.onReady(() => {
@@ -210,6 +273,7 @@
       mode('Conexão pronta. Os registros locais não foram enviados automaticamente.');
       renderButtons();
       inspectRemote();
+      inspectTelegram();
     });
     window.addEventListener('orbita:local-change', () => {
       if (auth.isAuthenticated()) {
