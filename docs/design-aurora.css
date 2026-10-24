@@ -398,3 +398,42 @@ html[data-orbita-theme="night"] .profile:nth-child(n) .mark{background:#303459;c
   html{scroll-behavior:auto}
   *{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+
+/* ORBITA 3.3 — Estado da memória central: contagem somente leitura */
+.orbita-cloud-bridge {
+  display:flex;align-items:center;gap:13px;margin:-4px 0 20px;
+  padding:15px 18px;border:1px solid #D9DEFA;background:linear-gradient(105deg,#F0EEFF,#FFFFFF 68%);
+  border-radius:16px;box-shadow:0 4px 14px rgba(61,62,139,.035);min-width:0;
+}
+.orbita-cloud-bridge-mark {
+  flex:none;display:grid;place-items:center;width:39px;height:39px;
+  border-radius:13px;background:#E2DEFF;color:#4C42B2;font-size:24px;font-weight:800;
+}
+.orbita-cloud-bridge-body {min-width:0;flex:1;display:grid;gap:2px}
+.orbita-cloud-bridge-body strong {
+  font:800 12px/1.5 var(--orbita-heading);color:#292C70;
+}
+.orbita-cloud-bridge-body span {
+  font-size:11px;line-height:1.65;color:#52607C;overflow-wrap:anywhere
+}
+.orbita-cloud-bridge-body small {font-size:10px;color:#74809A}
+.orbita-cloud-bridge-buttons {display:flex;flex:none;gap:8px;align-items:center}
+.orbita-cloud-bridge-buttons .btn {font-size:11px;min-height:36px;padding:7px 11px}
+html[data-orbita-theme="night"] .orbita-cloud-bridge {
+  background:linear-gradient(105deg,#22254C,#171F35 79%);border-color:#46456E
+}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-mark{background:#383463;color:#D7D1FF}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-body strong{color:#E1DEFF}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-body span{color:#CAD1E7}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-body small{color:#A6B4CE}
+@media(max-width:700px) {
+  .orbita-cloud-bridge{gap:10px;align-items:flex-start;padding:13px;flex-wrap:wrap;margin:1px 0 15px}
+  .orbita-cloud-bridge-mark{width:34px;height:34px;font-size:21px}
+  .orbita-cloud-bridge-body{flex:1 1 calc(100% - 50px)}
+  .orbita-cloud-bridge-buttons{width:100%;justify-content:flex-end}
+  .orbita-cloud-bridge-buttons .btn{min-width:0}
+}
+@media(max-width:370px) {
+  .orbita-cloud-bridge-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+}
