@@ -4,6 +4,7 @@ import json
 import socketserver
 import threading
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1] / "docs"
@@ -63,9 +64,19 @@ def mock_rest(route):
     }
     if req.method == "OPTIONS":
         return route.fulfill(status=204, headers=headers)
-    assert req.method == "GET", "A inspeção não deve gravar registros"
+    assert req.method == "GET", "A prévia do Telegram não deve gravar registros"
     assert "/rest/v1/orbita_records?" in req.url
     assert req.headers.get("authorization") == "Bearer test_access_token"
+    query = parse_qs(urlsplit(req.url).query)
+    if "payload->>source" in query:
+        assert query["payload->>source"] == ["eq.Telegram ORBITA"]
+        assert query["limit"] == ["5"]
+        assert req.headers.get("prefer") != "count=exact"
+        telegram = [{"id": "tg-1", "updated_at": "2026-10-24T20:11:00Z",
+                     "payload": {"id": "tg-1", "source": "Telegram ORBITA",
+                                 "title": '<img src=x onerror=alert(1)>',
+                                 "type": "tarefa", "priority": "P1", "status": "a_fazer"}}]
+        return route.fulfill(status=200, headers=headers, body=json.dumps(telegram))
     assert req.headers.get("prefer") == "count=exact"
     return route.fulfill(status=206, headers=headers, body='[{"id":"teste"}]')
 
@@ -118,6 +129,20 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.locator("#orbitaCloudInspect").click()
         page.wait_for_function(
             "document.querySelector('#orbitaCloudChecked')?.textContent.startsWith('Conferido')"
+        )
+        page.locator('.mobile-nav button[data-view="data"]').click()
+        page.wait_for_function(
+            "document.querySelector('#orbitaTelegramStatus')?.textContent.includes('Últimos 1 registro(s)')"
+        )
+        assert page.locator("#orbitaTelegramList li").count() == 1
+        assert page.locator("#orbitaTelegramList img").count() == 0, "Título remoto deve ser texto seguro"
+        assert page.locator("#orbitaTelegramList").inner_text().find("Em aberto") >= 0
+        assert page.evaluate(
+            "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
+        ) == 0, "Consulta não pode importar registros localmente"
+        page.locator("#orbitaTelegramRefresh").click()
+        page.wait_for_function(
+            "document.querySelector('#orbitaTelegramRefresh')?.disabled === false"
         )
         page.locator('.mobile-nav button[data-view="records"]').click()
         assert page.locator("#view-records").is_visible()
