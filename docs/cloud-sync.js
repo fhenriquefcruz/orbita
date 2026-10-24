@@ -16,6 +16,8 @@
   const el = id => document.getElementById(id);
   const setText = (id, text) => { const node = el(id); if (node) node.textContent = text; };
   const mode = text => { setText('orbitaCloudStatus', text); };
+  // Never render a previous account's response or write a snapshot after a session switch.
+  const sameAccount = id => auth.isAuthenticated() && auth.getUser()?.id === id;
 
   function localData() {
     const parsed = JSON.parse(localStorage.getItem(STORE) || '{}');
@@ -69,6 +71,7 @@
   }
   async function inspectRemote() {
     if (!auth.isAuthenticated() || inspecting || busy) return;
+    const viewingAccount = auth.getUser().id;
     inspecting = true;
     renderButtons();
     dashboardStatus('Verificando conexão com a memória central...');
@@ -85,6 +88,7 @@
         cache: 'no-store'
       });
       if (!response.ok) throw Error('HTTP ' + response.status);
+      if (!sameAccount(viewingAccount)) return;
       const range = response.headers.get('content-range') || '';
       const match = range.match(/\/(\d+)$/);
       lastRemoteCount = match ? Number(match[1]) : null;
@@ -97,6 +101,7 @@
       setText('orbitaCloudChecked', 'Conferido às ' +
         new Intl.DateTimeFormat('pt-BR', {hour: '2-digit', minute: '2-digit'}).format(new Date()));
     } catch (err) {
+      if (!sameAccount(viewingAccount)) return;
       lastRemoteCount = null;
       dashboardStatus('Não foi possível consultar a memória central. Os dados locais não foram alterados.');
       setText('orbitaCloudChecked', '');
@@ -132,7 +137,8 @@
   }
   async function sync() {
     if (!auth.isAuthenticated() || busy) return;
-    accountId = auth.getUser().id;
+    const operationAccount = auth.getUser().id;
+    accountId = operationAccount;
     busy = true; renderButtons(); mode('Comparando a memória local e a nuvem...');
     try {
       // Captura versão exata: evita sobrescrever alterações feitas em outra aba durante a rede.
@@ -140,6 +146,7 @@
       const originalTombstones = localStorage.getItem(TOMBSTONES);
       const snapshot = localData();
       const remote = await loadCloud();
+      if (!sameAccount(operationAccount)) throw Error('A conta mudou durante a leitura. Refaça a conciliação.');
       const deleted = tombstones();
       const plan = core.reconcile(snapshot.records, remote, deleted);
       const detail = `${snapshot.records.length} locais, ${remote.length} na nuvem, ` +
@@ -156,24 +163,28 @@
         'Backup salvo com segurança?')) {
         mode('Operação interrompida. Verifique o arquivo de backup antes de conciliar.'); return;
       }
+      if (!sameAccount(operationAccount)) throw Error('A conta mudou. Nenhuma gravação deve continuar.');
       if (localStorage.getItem(STORE) !== originalStore ||
           localStorage.getItem(TOMBSTONES) !== originalTombstones) {
         throw Error('Houve outra alteração neste navegador. Refaça a conciliação.');
       }
       for (const item of plan.upserts) {
+        if (!sameAccount(operationAccount)) throw Error('A conta mudou durante o envio.');
         await request('/rest/v1/orbita_records?on_conflict=id', 'POST', {
-          id: item.id, user_id: accountId, payload: item,
+          id: item.id, user_id: operationAccount, payload: item,
           created_at: item.created_at || new Date().toISOString(),
           updated_at: item.updated_at || new Date().toISOString()
         }, {prefer: 'resolution=merge-duplicates,return=minimal'});
       }
       for (const id of plan.deletions) {
+        if (!sameAccount(operationAccount)) throw Error('A conta mudou durante as exclusões.');
         await request('/rest/v1/orbita_records?id=eq.' + encodeURIComponent(id), 'DELETE',
           undefined, {prefer:'return=minimal'});
       }
       const clear = {...deleted};
       plan.clearTombstones.concat(plan.deletions).forEach(id => delete clear[id]);
-      // Evita perda silenciosa se registros/exclusões mudaram enquanto a API respondia.
+      // Evita perda silenciosa se a sessão ou os registros mudaram enquanto a API respondia.
+      if (!sameAccount(operationAccount)) throw Error('A conta mudou. O navegador não foi atualizado.');
       if (localStorage.getItem(STORE) !== originalStore ||
           localStorage.getItem(TOMBSTONES) !== originalTombstones) {
         throw Error('Os registros mudaram durante a conciliação. A nuvem pode ter alterações parciais; refaça a comparação.');
@@ -181,7 +192,7 @@
       // Backup foi exigido acima; localStorage não oferece transações entre chaves.
       localStorage.setItem(STORE, JSON.stringify({...snapshot, records:plan.records}));
       localStorage.setItem(TOMBSTONES, JSON.stringify(clear));
-      localStorage.setItem(BINDING, accountId);
+      localStorage.setItem(BINDING, operationAccount);
       dirty = false;
       mode('Sincronização confirmada: ' + plan.records.length + ' registros conciliados. Atualizando a tela...');
       setTimeout(() => location.reload(), 500);
@@ -198,6 +209,7 @@
   }
   async function inspectTelegram() {
     if (!auth.isAuthenticated() || busy || telegramInspecting) return;
+    const viewingAccount = auth.getUser().id;
     const status = el('orbitaTelegramStatus');
     const list = el('orbitaTelegramList');
     const refresh = el('orbitaTelegramRefresh');
@@ -215,6 +227,7 @@
       query.set('order', 'updated_at.desc,id.asc');
       query.set('limit', '5');
       const rows = await request('/rest/v1/orbita_records?' + query.toString());
+      if (!sameAccount(viewingAccount)) return;
       if (!Array.isArray(rows)) throw Error('Resposta inesperada do servidor');
       const valid = rows.filter(row => row && row.payload &&
         row.payload.id === row.id && row.payload.source === 'Telegram ORBITA');
@@ -239,7 +252,7 @@
         list.append(item);
       }
     } catch (_) {
-      status.textContent = 'Não foi possível consultar os registros do Telegram. Os dados locais não foram alterados.';
+      if (sameAccount(viewingAccount)) status.textContent = 'Não foi possível consultar os registros do Telegram. Os dados locais não foram alterados.';
     } finally {
       telegramInspecting = false;
       refresh.disabled = !auth.isAuthenticated();
