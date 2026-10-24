@@ -88,7 +88,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         assert page.locator("#view-records").is_visible()
         assert page.locator("#statOpen").inner_text() == "0"
 
-        page.locator("[data-add]").first.click()
+        page.locator("#view-records [data-add]").click()
         page.locator("#fTitle").fill("Testar tarefa ORBITA")
         page.locator('#recordForm button[type="submit"]').click()
         assert page.locator("#statOpen").inner_text() == "1"
