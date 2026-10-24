@@ -8,7 +8,7 @@
 - `telegram/bot.py`: polling Telegram, SQLite privado e uso opcional da OpenAI API.
 - `docs/sw.js`: cache de recursos estáticos, sem API privada.
 - `GitHub Pages`: workflow do repositório no `main`, sem backend embutido.
-- Não havia memória compartilhada, autenticação web nem sincronização com Telegram.
+- Na linha de base 3.0-alpha.1 não havia memória compartilhada ativa nem proteção global do painel; a conexão à nuvem usava login isolado no módulo Dados.
 - Não havia comprovação de notificações realmente programadas.
 
 ## Decisão de arquitetura
@@ -22,7 +22,9 @@ Preservar frontend existente e SQLite de desenvolvimento. Acrescentar projeto Su
 | ORB-SEC-001 | Sem segredos no repositório público | Config pública separada, chaves secret server-side | Inspeção e CI `tests.yml` | Em validação |
 | ORB-DATA-001 | Preservação de registros existentes | `docs/cloud-core.js`, backups e tombstones | `quality/test_cloud_core.cjs` (7 cenários) | Em validação |
 | ORB-DATA-002 | Memória PostgreSQL com RLS por usuário | `infra/supabase/001_core.sql` | Schema escrito; execução/RLS real pendentes | Bloqueado |
-| ORB-DATA-003 | Login com projeto isolado | `docs/cloud-sync.js` autenticação Supabase Auth | E2E real pendente | Bloqueado |
+| ORB-DATA-003 | Login com projeto isolado | `docs/auth.js`, sessão validada e recuperável, `docs/cloud-sync.js` sem login paralelo | Sintaxe JS verificada; E2E real pendente | Implementado, não homologado |
+| ORB-SEC-002 | Views protegidas `#/home`…`#/data` | UI bloqueada por padrão, guarda de sessão e logout | Smoke com Auth simulado no CI; Supabase real pendente | Implementado, não homologado |
+| ORB-SEC-003 | Recuperação de senha | Auth REST com link de recuperação e troca de senha | Teste com SMTP/e-mail real pendente | Implementado, não homologado |
 | ORB-DATA-004 | Conciliação explícita local↔nuvem | `cloud-core.js`, `cloud-sync.js` | 7 testes de regra aprovados; E2E pendente | Em validação |
 | ORB-INT-001 | Telegram consultar a memória central | `telegram/cloud_memory.py`, seleção em `bot.py` | 6 testes do adaptador; integração real pendente | Em validação |
 | ORB-INT-002 | Webhook HTTPS autenticado Telegram | `api/index.py` | 3 testes de bloqueio/autorização; deploy pendente | Em validação |
@@ -61,4 +63,4 @@ Preservar frontend existente e SQLite de desenvolvimento. Acrescentar projeto Su
 
 ## Situação do incremento
 
-**Em validação.** Código testado isoladamente, mas não homologado com serviços externos nem verificado em browser real. O ORBITA 3.0 **não está integralmente concluído**.
+**Em validação.** A autenticação e o guard das views foram adicionados na branch `feat/supabase-auth-protected-panel`. Ainda requerem confirmação do CI, testes com Supabase Auth/RLS real e conexão da organização exclusiva ORBITA. Não há liberação para dados sensíveis. O ORBITA 3.0 **não está integralmente concluído**.
