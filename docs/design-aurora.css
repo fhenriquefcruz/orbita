@@ -478,3 +478,58 @@ html[data-orbita-theme="night"] .orbita-telegram-item-info small{color:#A8B9D6}
   .orbita-telegram-item{align-items:flex-start;flex-wrap:wrap;gap:8px}
   .orbita-telegram-state{margin-left:auto}
 }
+
+/* ORBITA 3.6 — Atividades da memória Telegram: indicadores e busca somente leitura */
+.orbita-telegram-metrics{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:16px 0;
+}
+.orbita-telegram-metrics>div{
+  min-width:0;padding:14px 12px;border:1px solid #E0E6F7;border-radius:13px;
+  background:#fff;display:grid;gap:4px;
+}
+.orbita-telegram-metrics span{font:800 clamp(19px,3vw,25px)/1.2 var(--orbita-heading);color:#25345C}
+.orbita-telegram-metrics small{font-size:10px;color:#657493;line-height:1.4}
+.orbita-telegram-metrics>div:first-child span{color:#996019}
+.orbita-telegram-metrics>div:nth-child(2) span{color:#20774E}
+.orbita-telegram-metrics>div:nth-child(3) span{color:#5C4FBE}
+.orbita-telegram-filters{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:11px;
+  align-items:end;
+}
+.orbita-telegram-filters label{display:grid;gap:6px;min-width:0}
+.orbita-telegram-filters label>span{font-size:10px;color:#53627F;font-weight:750}
+.orbita-telegram-filters .input{
+  display:block;width:100%;min-width:0;min-height:40px;padding:9px 11px;
+  font:inherit;font-size:12px;border:1px solid #D4DCF1;border-radius:10px;
+  color:#25345C;background:#fff;
+}
+.orbita-telegram-filters .input:focus-visible{outline:2px solid #6357CA;outline-offset:2px}
+.orbita-telegram-state.is-progress{color:#365A95;background:#E1EEFF}
+.orbita-telegram-state.is-muted{color:#626C82;background:#EDF0F5}
+.orbita-telegram-empty{
+  padding:17px 14px;border-radius:11px;border:1px dashed #CFD6E8;
+  color:#657493;line-height:1.65;font-size:12px;text-align:center;
+}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div{
+  background:#192640;border-color:#3D4B6A;
+}
+html[data-orbita-theme="night"] .orbita-telegram-metrics span{color:#E9EDFC}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div:first-child span{color:#F7C476}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div:nth-child(2) span{color:#94DFB4}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div:nth-child(3) span{color:#BEB0FF}
+html[data-orbita-theme="night"] .orbita-telegram-metrics small,
+html[data-orbita-theme="night"] .orbita-telegram-filters label>span{color:#C1CEE4}
+html[data-orbita-theme="night"] .orbita-telegram-filters .input{
+  background:#17233B;color:#ECF2FF;border-color:#44506D;
+}
+html[data-orbita-theme="night"] .orbita-telegram-empty{
+  border-color:#4A5673;color:#BFCCE5;
+}
+@media(max-width:470px){
+  .orbita-telegram-metrics{gap:6px;margin:14px 0}
+  .orbita-telegram-metrics>div{padding:12px 8px;border-radius:11px}
+  .orbita-telegram-metrics span{font-size:20px}
+  .orbita-telegram-metrics small{font-size:9px}
+  .orbita-telegram-filters{grid-template-columns:1fr;gap:10px}
+  .orbita-telegram-filters .input{min-height:44px}
+}
