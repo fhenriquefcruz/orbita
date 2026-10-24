@@ -325,8 +325,22 @@ def main() -> int:
     if not re.fullmatch(r"\d+:[A-Za-z0-9_-]{20,}", token):
         print("Formato de TELEGRAM_BOT_TOKEN inválido. Corrija .env local.")
         return 2
-    db_path = ROOT / "orbita.sqlite3"
-    mem = Memory(db_path)
+    # A memória em nuvem é opcional, mas as três configurações são atômicas:
+    # jamais alternar silenciosamente para SQLite quando a conexão remota falhar.
+    cloud_settings = [os.environ.get(k, "").strip() for k in
+                      ("SUPABASE_URL", "SUPABASE_SECRET_KEY", "ORBITA_USER_UUID")]
+    if any(cloud_settings) and not all(cloud_settings):
+        print("Configuração de memória central incompleta; não é seguro iniciar.")
+        return 2
+    if all(cloud_settings):
+        from cloud_memory import CloudMemory
+        try:
+            mem = CloudMemory(*cloud_settings)
+        except ValueError:
+            print("Parâmetros da memória central inválidos.")
+            return 2
+    else:
+        mem = Memory(ROOT / "orbita.sqlite3")
     if owner_id == 0:
         print("MODO VINCULAÇÃO: somente /id está habilitado; configure ORBITA_OWNER_ID para liberar o bot.")
     else:

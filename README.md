@@ -2,14 +2,17 @@
 
 Projeto independente de assessoria pessoal com **sete personagens**: **Vânia** (coordenação), **Zezé** (agenda e tarefas), **Gusttavo Lima** (ideias), **Bastião** (memória profissional), **Obina** (alertas), **Chicão** (execução) e **Fátima** (pesquisa).
 
-> **Estado: protótipo técnico.** O painel e o bot são módulos **independentes**; não compartilham automaticamente memória, credenciais ou agenda. O bot só responde enquanto executado no computador ou servidor. Não há notificações agendadas ativas.
+> **Estado: 3.0-alpha.1 em validação.** A memória central Supabase foi implementada como integração **opcional e configurável**, mas ainda não foi ativada no ambiente do usuário. O painel usa armazenamento local; a conciliação com a nuvem exige login e confirmação manual. O bot só responde quando executado ou com webhook hospedado e configurado. Não há notificações agendadas ativas.
 
 ## Estrutura
 
 | Pasta | Conteúdo | Estado |
 | --- | --- | --- |
 | `docs/` | Painel web responsivo PWA para GitHub Pages | Funcional **localmente no navegador** |
-| `telegram/` | Bot Telegram com comandos, SQLite e OpenAI opcional | Executável após configuração privada |
+| `telegram/` | Bot Telegram com comandos, SQLite, OpenAI opcional e memória Supabase | Executável após configuração privada |
+| `infra/supabase/` | DDL com RLS para memória compartilhada | Implementado, implantação pendente |
+| `api/index.py` | Webhook FastAPI para hospedagem HTTPS | Implementado, deploy pendente |
+| `quality/` | Testes e matriz de requisitos do prompt mestre | 24 testes locais aprovados, E2E pendente |
 | `.github/workflows/pages.yml` | Publicação estática do painel | Executa após habilitar Pages no GitHub |
 | `.github/workflows/tests.yml` | Testes e verificação preventiva de token | Automatizado |
 
@@ -42,6 +45,14 @@ Consulte [telegram/README.md](telegram/README.md). Nunca envie token de bot ou c
 - Silêncio das **20h00 às 07h30** (fuso `America/Campo_Grande`), com exceções críticas justificadas.
 - Prioridades P0 crítica, P1 alta, P2 normal e P3 baixa.
 - **Nenhuma notificação automática está ativada.**
+
+## Evolução ORBITA 3.0
+
+Consulte [Prompt Mestre](product/PROMPT_MESTRE_ORBITA_3_0.md), [Rastreabilidade](quality/TRACEABILITY.md) e [Configuração da memória central](infra/SETUP.md).
+
+A seção **Dados e histórico → Memória central** aparece no painel. Por padrão, informa que a integração está indisponível até a criação de um projeto Supabase exclusivo e preenchimento **somente dos dados públicos** no arquivo `docs/cloud-config.js`. Não envie chaves privadas para o GitHub.
+
+O bot e a aplicação web **não compartilham dados automaticamente neste instante**. Depois da configuração privada, o Telegram pode salvar no Supabase e o painel pode conciliar registros por ação explícita. **Não há atualização em tempo real** nesta versão.
 
 ## Próximas etapas
 
