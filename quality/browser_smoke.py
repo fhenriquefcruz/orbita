@@ -87,6 +87,13 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
         assert page.locator("#view-records").is_visible()
         assert page.locator("#statOpen").inner_text() == "0"
+        # Validação de scroll horizontal também depois da autenticação.
+        for responsive_width in (320,360,390,428,768,1024,1440,1920):
+            page.set_viewport_size({"width":responsive_width,"height":844})
+            assert not page.evaluate(
+                "document.documentElement.scrollWidth > window.innerWidth + 1"
+            ), f"Overflow na central autenticada: {responsive_width}"
+        page.set_viewport_size({"width":390,"height":844})
         # Alternância visual: tema noturno e persistência local.
         toggle = page.locator("#orbitaThemeToggle")
         assert toggle.count() == 1
