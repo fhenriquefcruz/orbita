@@ -1,12 +1,12 @@
 {
   "name": "ORBITA | Assistente Inteligente",
   "short_name": "ORBITA",
-  "description": "Painel pessoal ORBITA (modo local)",
+  "description": "Assessoria pessoal ORBITA — modo local e memória central opcional",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#11191a",
-  "theme_color": "#161d20",
+  "background_color": "#0B1216",
+  "theme_color": "#0B1216",
   "icons": [
     {
       "src": "./assets/orbita-icon.svg",

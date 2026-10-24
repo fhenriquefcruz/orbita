@@ -18,3 +18,13 @@
 - [ ] Implementar resumos reais às 07h30 e 18h, sem notificações comuns após 20h
 - [ ] Exportação/restauração segura do banco central
 - [ ] Testes de custo, privacidade, escalabilidade e observabilidade
+
+
+## 3.0-alpha.1 — Linha de base + fundação da integração (em validação)
+- Contrato mestre versionado em `product/`.
+- Matriz de rastreabilidade em `quality/TRACEABILITY.md`.
+- Supabase com RLS, adaptador Python e webhook FastAPI **codificados**; implantação externa pendente.
+- Conciliação local/nuvem sob demanda com backup e tombstones; autenticação real depende de Supabase próprio.
+- Identidade de cores refinada, data de conclusão distinguida do histórico, cache de PWA versionado.
+- 24 testes unitários locais, sem afirmar teste externo.
+- Próximos marcos: projeto Supabase dedicado, RLS testada, credenciais privadas de hospedagem, E2E, acessibilidade, redesign integral e notificações verificadas.
