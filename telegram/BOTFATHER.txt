@@ -1,0 +1,32 @@
+CONFIGURAÇÃO DO PERFIL NO BOTFATHER
+================================
+
+1. /setdescription
+Escolha @orbita_assistente_bot e envie:
+
+ORBITA é sua equipe de assistentes inteligentes para organizar compromissos, tarefas, ideias, projetos e prioridades. Converse com Vânia, Zezé, Gusttavo Lima, Bastião, Obina, Chicão e Fátima em um único lugar. Integrações e lembretes estarão disponíveis conforme forem ativados.
+
+2. /setabouttext
+Escolha @orbita_assistente_bot e envie:
+
+Seu núcleo de assistentes para agenda, tarefas, ideias, memória, planejamento e pesquisa.
+
+3. /setcommands
+Escolha @orbita_assistente_bot e envie exatamente:
+
+start - Iniciar o ORBITA
+ajuda - Ver o que ja funciona
+equipe - Conhecer os personagens
+id - Mostrar meu identificador
+tarefa - Registrar nova tarefa
+tarefas - Consultar tarefas abertas
+ideia - Guardar uma ideia
+ideias - Consultar ideias registradas
+feito - Concluir tarefa pelo identificador
+resumo - Gerar pre-resumo manual
+limparconversa - Apagar historico local de chat
+
+4. /setuserpic (opcional)
+Escolha o bot e envie uma imagem de perfil que represente o ORBITA.
+
+Observacao: Comandos no BotFather apenas exibem atalhos; eles somente funcionam quando o bot.py estiver em execucao.

@@ -1,0 +1,34 @@
+name: Testes ORBITA
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testes Python (sem credenciais)
+        working-directory: telegram
+        run: python -m unittest discover -s tests -v
+      - name: Verificação de arquivos sensíveis
+        run: |
+          test ! -e telegram/.env
+          test ! -e telegram/orbita.sqlite3
+          test ! -e .env
+          python - <<'PYSCAN'
+          from pathlib import Path
+          import re,sys
+          paths=[p for p in Path('.').rglob('*') if p.is_file() and '.git' not in p.parts]
+          leaked=[]
+          for p in paths:
+              if p.suffix in ('.png','.jpg','.jpeg','.zip','.webp','.pdf','.pyc'): continue
+              s=p.read_text(encoding='utf-8',errors='replace')
+              if re.search(r'(?<![A-Za-z0-9])\d{8,12}:AA[A-Za-z0-9_-]{25,}',s): leaked.append(str(p))
+          if leaked: sys.exit('Possível token Telegram incluído: '+', '.join(leaked))
+          PYSCAN

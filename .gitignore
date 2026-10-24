@@ -1,0 +1,19 @@
+# Secrets / databases / local memory
+.env
+.env.*
+!.env.example
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+*.log
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+.vscode/
+.idea/
+# Exclude personal backups / exports
+*backup*.json
+*export*.json
