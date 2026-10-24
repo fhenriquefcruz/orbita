@@ -374,6 +374,13 @@ html[data-orbita-theme="night"] .profile:nth-child(n) .mark{background:#303459;c
   .modal{padding:18px;max-height:calc(100dvh - 24px)}
   .orbita-cloud-actions{display:grid;grid-template-columns:1fr}
 }
+@media(max-width:470px){
+  /* Evita colisões entre breadcrumb, conta e ações em iPhones compactos. */
+  .top{flex-wrap:wrap;row-gap:7px}
+  .crumb{flex:1 1 100%;max-width:none}
+  .headtools{width:100%;justify-content:flex-end;min-width:0}
+  .headtools .orbita-account{max-width:98px}
+}
 @media(max-width:375px){
   .headtools .pill{display:none}
   .crumb{max-width:150px}
