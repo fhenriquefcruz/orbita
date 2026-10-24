@@ -50,6 +50,24 @@ def mock_api(route):
     return route.fulfill(status=200, body=json.dumps(body), headers=headers)
 
 
+
+def mock_rest(route):
+    req = route.request
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "authorization, apikey, prefer, content-type",
+        "Content-Type": "application/json",
+        "Content-Range": "0-0/2",
+    }
+    if req.method == "OPTIONS":
+        return route.fulfill(status=204, headers=headers)
+    assert req.method == "GET", "A inspeção não deve gravar registros"
+    assert "/rest/v1/orbita_records?" in req.url
+    assert req.headers.get("authorization") == "Bearer test_access_token"
+    assert req.headers.get("prefer") == "count=exact"
+    return route.fulfill(status=206, headers=headers, body='[{"id":"teste"}]')
+
 with ReusableServer(("127.0.0.1", 0), Quiet) as server:
     worker = threading.Thread(target=server.serve_forever, daemon=True)
     worker.start()
@@ -77,6 +95,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
                  "',publishableKey:'sb_publishable_public_test'};"))
         page.route(ORIGIN + "/**", mock_api)
+        page.route(ORIGIN + "/rest/v1/**", mock_rest)
         errors = []
         page.on("pageerror", lambda err: errors.append(str(err)))
         page.goto(url + "#/records", wait_until="networkidle")
@@ -87,6 +106,15 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
         assert page.locator("#view-records").is_visible()
         assert page.locator("#statOpen").inner_text() == "0"
+        # Consulta autenticada é de leitura: exibe somente a contagem da nuvem.
+        page.wait_for_function(
+            "document.querySelector('#orbitaCloudDashboardStatus')?.textContent.includes('2 registro(s) na nuvem')"
+        )
+        assert page.locator("#orbitaCloudBridge").is_visible()
+        page.locator("#orbitaCloudInspect").click()
+        page.wait_for_function(
+            "document.querySelector('#orbitaCloudChecked')?.textContent.startsWith('Conferido')"
+        )
         # Validação de scroll horizontal também depois da autenticação.
         for responsive_width in (320,360,390,428,768,1024,1440,1920):
             page.set_viewport_size({"width":responsive_width,"height":844})
