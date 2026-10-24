@@ -1,14 +1,14 @@
-/* ORBITA 3.0 | Acesso autenticado e migração explícita para Supabase.
- * O painel local continua funcionando sem rede; login e sincronização exigem
- * projeto próprio, esquema RLS e conta Auth. Nenhum token é persistido.
+/* ORBITA 3.1 | Conciliação manual vinculada à sessão autenticada do painel.
+ * Nenhum login paralelo ou token privado: utiliza a identidade verificada em auth.js.
  */
 (() => {
   'use strict';
   const config = window.ORBITA_CLOUD_PUBLIC || {};
+  const auth = window.OrbitaAuth;
   const core = window.OrbitaCloudCore;
   const STORE = 'orbita_v12_local', TOMBSTONES = 'orbita_cloud_tombstones_v1';
   const BINDING = 'orbita_cloud_binding_v1';
-  let accessToken = '', accountId = '', busy = false, dirty = false;
+  let accountId = '', busy = false, dirty = false;
   const base = (config.url || '').replace(/\/$/, '');
   const allowed = /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(base) &&
     /^(sb_publishable_[\w-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(config.publishableKey || '');
@@ -30,7 +30,7 @@
   async function request(path, method = 'GET', payload = undefined, opts = {}) {
     if (!allowed) throw Error('Integração não configurada');
     const headers = {'apikey': config.publishableKey, 'Content-Type': 'application/json'};
-    if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
+    headers.Authorization = 'Bearer ' + await auth.getAccessToken();
     if (opts.prefer) headers.Prefer = opts.prefer;
     const result = await fetch(base + path, {method, headers,
       body: payload === undefined ? undefined : JSON.stringify(payload), cache: 'no-store'});
@@ -51,29 +51,6 @@
     } while (true);
     return rows;
   }
-  async function login(event) {
-    event.preventDefault();
-    if (!allowed) { mode('Configuração pública do Supabase ainda pendente.'); return; }
-    const email = el('orbitaCloudEmail').value.trim();
-    const password = el('orbitaCloudPassword').value;
-    if (!email || !password) return;
-    busy = true; renderButtons(); mode('Autenticando...');
-    try {
-      const session = await request('/auth/v1/token?grant_type=password', 'POST', {email, password});
-      if (!session.access_token || !session.user?.id) throw Error('Sessão não recebida');
-      const savedBinding = localStorage.getItem(BINDING);
-      if (savedBinding && savedBinding !== session.user.id) throw Error(
-        'Este navegador contém dados vinculados a outra conta. Exporte um backup e use um perfil de navegador separado.');
-      accessToken = session.access_token;
-      accountId = session.user.id;
-      el('orbitaCloudPassword').value = '';
-      mode('Conectado: memória central disponível. Sincronização somente mediante confirmação.');
-      setText('modeSide','Memória local + nuvem sob demanda');
-      el('orbitaCloudLogin').hidden = true;
-      el('orbitaCloudActions').hidden = false;
-    } catch (e) { accessToken = ''; accountId = ''; mode('Não foi possível entrar: ' + e.message); }
-    finally { busy = false; renderButtons(); }
-  }
   function saveBackup(snapshot) {
     const blob = new Blob([JSON.stringify({...snapshot, exported_at: new Date().toISOString()}, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
@@ -83,11 +60,11 @@
     setTimeout(() => URL.revokeObjectURL(url), 15000);
   }
   function renderButtons() {
-    if (el('orbitaCloudSync')) el('orbitaCloudSync').disabled = busy || !accessToken;
-    if (el('orbitaCloudSubmit')) el('orbitaCloudSubmit').disabled = busy;
+    if (el('orbitaCloudSync')) el('orbitaCloudSync').disabled = busy || !auth.isAuthenticated();
   }
   async function sync() {
-    if (!accessToken || busy) return;
+    if (!auth.isAuthenticated() || busy) return;
+    accountId = auth.getUser().id;
     busy = true; renderButtons(); mode('Comparando a memória local e a nuvem...');
     try {
       const snapshot = localData();
@@ -125,40 +102,32 @@
     } catch (e) { dirty = true; mode('Sincronização não concluída: ' + e.message + '. Seus dados locais foram preservados.'); }
     finally { busy = false; renderButtons(); }
   }
-  function logout() {
-    accessToken = ''; accountId = '';
-    el('orbitaCloudLogin').hidden = false;
-    el('orbitaCloudActions').hidden = true;
-    mode('Desconectado. Os registros locais continuam disponíveis.');
-    setText('modeSide','Modo HTML local • neste navegador');
-    renderButtons();
-  }
   function buildPanel() {
     const parent = document.getElementById('view-data');
     if (!parent) return;
     const card = document.createElement('section');
     card.className = 'card orbita-cloud-panel';
-    card.innerHTML = `<div class="sectionhead"><h2>Memória central</h2><span class="chip">SUPABASE · RLS</span></div>
-      <p class="small muted">A conexão é opcional. Dados deste navegador só serão enviados após login e confirmação. O Telegram usará a mesma base quando seu backend estiver configurado.</p>
-      <p class="small" id="orbitaCloudStatus" role="status" aria-live="polite"></p>
-      <form id="orbitaCloudLogin" class="orbita-cloud-login">
-        <label class="field" for="orbitaCloudEmail">E-mail da conta ORBITA<input class="input" id="orbitaCloudEmail" type="email" autocomplete="username" required></label>
-        <label class="field" for="orbitaCloudPassword">Senha<input class="input" id="orbitaCloudPassword" type="password" autocomplete="current-password" required></label>
-        <button id="orbitaCloudSubmit" class="btn primary" type="submit">Conectar memória</button>
-      </form>
-      <div id="orbitaCloudActions" hidden class="actions orbita-cloud-actions">
-        <button id="orbitaCloudSync" type="button" class="btn primary">Conciliar registros agora</button>
-        <button id="orbitaCloudLogout" type="button" class="btn">Desconectar</button>
-      </div>`;
+    card.innerHTML = '<div class="sectionhead"><h2>Memória central</h2><span class="chip">SUPABASE · RLS</span></div>' +
+      '<p class="small muted">Sua conta está autenticada. Dados deste navegador só serão enviados após confirmação da conciliação. O Telegram poderá compartilhar a base quando o backend estiver configurado.</p>' +
+      '<p class="small" id="orbitaCloudAccount"></p>' +
+      '<p class="small" id="orbitaCloudStatus" role="status" aria-live="polite"></p>' +
+      '<div class="actions orbita-cloud-actions"><button id="orbitaCloudSync" type="button" class="btn primary">Conciliar registros agora</button></div>';
     parent.append(card);
-    el('orbitaCloudLogin').addEventListener('submit', login);
     el('orbitaCloudSync').addEventListener('click', sync);
-    el('orbitaCloudLogout').addEventListener('click', logout);
-    mode(allowed ? 'Pronta para autenticar. Os dados continuam somente neste navegador.' :
-      'Memória central não configurada. O painel continua em modo local; veja a documentação de implantação.');
-    if (!allowed) { el('orbitaCloudLogin').hidden = true; }
+    mode(allowed ? 'Aguardando autenticação para sincronizar.' : 'O projeto exclusivo do ORBITA ainda não está configurado.');
+    renderButtons();
+    auth.onReady(() => {
+      const identity = auth.getUser();
+      accountId = identity.id;
+      setText('orbitaCloudAccount', 'Conectado como ' + (identity.email || identity.id));
+      mode('Conexão pronta. Os registros locais não foram enviados automaticamente.');
+      renderButtons();
+    });
     window.addEventListener('orbita:local-change', () => {
-      if (accessToken) { dirty = true; mode('Alterações locais pendentes. Clique em “Conciliar registros agora”.'); }
+      if (auth.isAuthenticated()) {
+        dirty = true;
+        mode('Alterações locais pendentes. Clique em “Conciliar registros agora”.');
+      }
     });
   }
   buildPanel();
