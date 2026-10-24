@@ -43,7 +43,7 @@
     const rows = [];
     let offset = 0;
     do {
-      const search = '?select=id,payload,updated_at&order=updated_at.desc&limit=500&offset=' + offset;
+      const search = '?select=id,payload,updated_at&order=updated_at.desc,id.asc&limit=500&offset=' + offset;
       const part = await request('/rest/v1/orbita_records' + search);
       rows.push(...part);
       if (part.length < 500) break;
