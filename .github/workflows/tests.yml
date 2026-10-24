@@ -28,7 +28,9 @@ jobs:
           node --check docs/auth.js
           node --check docs/cloud-core.js
           node --check docs/cloud-sync.js
+          node --check docs/theme.js
           node --check docs/sw.js
+          test -s docs/design-aurora.css
       - name: Instalar navegador de teste
         run: |
           python -m pip install playwright==1.55.0

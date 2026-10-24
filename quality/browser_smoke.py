@@ -87,12 +87,20 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
         assert page.locator("#view-records").is_visible()
         assert page.locator("#statOpen").inner_text() == "0"
+        # Alternância visual: tema noturno e persistência local.
+        toggle = page.locator("#orbitaThemeToggle")
+        assert toggle.count() == 1
+        assert page.evaluate("document.documentElement.dataset.orbitaTheme") == "light"
+        toggle.click()
+        assert page.evaluate("document.documentElement.dataset.orbitaTheme") == "night"
+        assert toggle.get_attribute("aria-pressed") == "true"
 
         page.locator("#view-records [data-add]").click()
         page.locator("#fTitle").fill("Testar tarefa ORBITA")
         page.locator('#recordForm button[type="submit"]').click()
         assert page.locator("#statOpen").inner_text() == "1"
         page.reload(wait_until="networkidle")
+        assert page.evaluate("document.documentElement.dataset.orbitaTheme") == "night", "Tema não foi restaurado"
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
         assert page.locator("#statOpen").inner_text() == "1"
         assert page.locator("#view-records").is_visible(), "Deep link not restored"
