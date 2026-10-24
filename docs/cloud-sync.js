@@ -200,12 +200,82 @@
       '. Verifique o backup; operações remotas anteriores à falha podem ter sido aplicadas.'); }
     finally { busy = false; renderButtons(); }
   }
+  // Central do Telegram: consulta por iniciativa do usuário, sem sincronizar ou mutar dados.
   let telegramInspecting = false;
+  let telegramRows = [];
+  let telegramAccount = '';
+  const telegramStatuses = Object.freeze({
+    a_fazer: 'A fazer', em_andamento: 'Em andamento',
+    concluida: 'Concluída', cancelada: 'Cancelada', arquivada: 'Arquivada'
+  });
   function telegramNode(tag, className, content) {
     const node = document.createElement(tag);
     node.className = className;
     node.textContent = content;
     return node;
+  }
+  function normalized(value) {
+    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR');
+  }
+  function resetTelegramMetrics() {
+    for (const id of ['orbitaTelegramOpen', 'orbitaTelegramDone', 'orbitaTelegramIdeas']) {
+      setText(id, '—');
+    }
+  }
+  function renderTelegram() {
+    if (!sameAccount(telegramAccount)) return;
+    const list = el('orbitaTelegramList');
+    const status = el('orbitaTelegramStatus');
+    if (!list || !status) return;
+    const tasks = telegramRows.filter(row => row.payload.type === 'tarefa');
+    const open = tasks.filter(row => ['a_fazer', 'em_andamento'].includes(row.payload.status)).length;
+    const done = tasks.filter(row => row.payload.status === 'concluida').length;
+    const ideas = telegramRows.filter(row => row.payload.type === 'ideia').length;
+    setText('orbitaTelegramOpen', String(open));
+    setText('orbitaTelegramDone', String(done));
+    setText('orbitaTelegramIdeas', String(ideas));
+    const selection = el('orbitaTelegramFilter')?.value || 'all';
+    const search = normalized(el('orbitaTelegramSearch')?.value.trim());
+    const visible = telegramRows.filter(row => {
+      const p = row.payload;
+      const matchFilter = selection === 'all' ||
+        (selection === 'open' && p.type === 'tarefa' && ['a_fazer','em_andamento'].includes(p.status)) ||
+        (selection === 'done' && p.type === 'tarefa' && p.status === 'concluida') ||
+        (selection === 'ideas' && p.type === 'ideia');
+      return matchFilter && (!search || normalized(p.title).includes(search));
+    });
+    list.replaceChildren();
+    status.textContent = 'Exibindo ' + visible.length + ' de ' + telegramRows.length +
+      ' registro(s) consultado(s)' + (telegramRows.length >= 100 ? ' · limite de 100 itens recentes' : '') +
+      '. Apenas leitura; nenhuma alteração local.';
+    if (!visible.length) {
+      list.append(telegramNode('li', 'orbita-telegram-empty',
+        telegramRows.length ? 'Nenhum item corresponde aos filtros.' :
+          'Nenhum registro do Telegram nesta conta. Confira se ela é a mesma vinculada ao bot.'));
+      return;
+    }
+    for (const row of visible) {
+      const p = row.payload;
+      const item = telegramNode('li', 'orbita-telegram-item', '');
+      const info = telegramNode('div', 'orbita-telegram-item-info', '');
+      const title = String(p.title || 'Sem título');
+      info.append(telegramNode('strong', '', title));
+      const kind = p.type === 'ideia' ? 'Ideia' : p.type === 'tarefa' ? 'Tarefa' : 'Registro';
+      const priority = /^P[0-3]$/.test(p.priority || '') ? ' · ' + p.priority : '';
+      const sequence = Number.isSafeInteger(row.telegram_seq) && row.telegram_seq > 0 ?
+        ' · #' + row.telegram_seq : '';
+      const date = new Date(row.updated_at || p.updated_at || '');
+      const dateLabel = Number.isFinite(date.valueOf()) ?
+        ' · ' + new Intl.DateTimeFormat('pt-BR', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}).format(date) : '';
+      info.append(telegramNode('small', '', kind + priority + sequence + dateLabel));
+      const state = telegramStatuses[p.status] || 'Sem situação';
+      const stateClass = p.status === 'concluida' ? ' is-done' :
+        p.status === 'em_andamento' ? ' is-progress' :
+        ['cancelada','arquivada'].includes(p.status) ? ' is-muted' : '';
+      const label = telegramNode('span', 'orbita-telegram-state' + stateClass, state);
+      item.append(info, label);
+      list.append(item);
+    }
   }
   async function inspectTelegram() {
     if (!auth.isAuthenticated() || busy || telegramInspecting) return;
@@ -215,44 +285,32 @@
     const refresh = el('orbitaTelegramRefresh');
     if (!status || !list || !refresh) return;
     telegramInspecting = true;
+    telegramAccount = viewingAccount;
+    telegramRows = [];
     refresh.disabled = true;
-    status.textContent = 'Consultando registros do Telegram na sua conta...';
+    status.textContent = 'Consultando atividades do Telegram na sua conta...';
     list.replaceChildren();
+    resetTelegramMetrics();
     try {
-      // RLS no Supabase limita o resultado à conta autenticada no painel.
-      // JSONB filtra na origem; nenhuma chave privilegiada é exposta no cliente.
+      // Retorna apenas registros acessíveis via JWT Auth + políticas RLS.
       const query = new URLSearchParams();
-      query.set('select', 'id,payload,updated_at');
+      query.set('select', 'id,telegram_seq,payload,updated_at');
       query.set('payload->>source', 'eq.Telegram ORBITA');
       query.set('order', 'updated_at.desc,id.asc');
-      query.set('limit', '5');
+      query.set('limit', '100');
       const rows = await request('/rest/v1/orbita_records?' + query.toString());
       if (!sameAccount(viewingAccount)) return;
       if (!Array.isArray(rows)) throw Error('Resposta inesperada do servidor');
-      const valid = rows.filter(row => row && row.payload &&
+      telegramRows = rows.filter(row => row && row.payload &&
         row.payload.id === row.id && row.payload.source === 'Telegram ORBITA');
-      if (!valid.length) {
-        status.textContent = 'Nenhum registro do Telegram encontrado nesta conta. Verifique se o painel usa a mesma conta Auth configurada no bot.';
-        return;
-      }
-      status.textContent = 'Últimos ' + valid.length +
-        ' registro(s) do Telegram · consulta somente de leitura.';
-      for (const row of valid) {
-        const p = row.payload;
-        const item = telegramNode('li', 'orbita-telegram-item', '');
-        const info = telegramNode('div', 'orbita-telegram-item-info', '');
-        info.append(telegramNode('strong', '', String(p.title || 'Sem título')));
-        const kind = p.type === 'ideia' ? 'Ideia' : p.type === 'tarefa' ? 'Tarefa' : 'Registro';
-        const priority = /^P[0-3]$/.test(p.priority || '') ? p.priority : '';
-        info.append(telegramNode('small', '', kind + (priority ? ' · ' + priority : '')));
-        const completed = p.status === 'concluida';
-        const label = telegramNode('span', 'orbita-telegram-state' +
-          (completed ? ' is-done' : ''), completed ? 'Concluída' : 'Em aberto');
-        item.append(info, label);
-        list.append(item);
-      }
+      renderTelegram();
     } catch (_) {
-      if (sameAccount(viewingAccount)) status.textContent = 'Não foi possível consultar os registros do Telegram. Os dados locais não foram alterados.';
+      if (sameAccount(viewingAccount)) {
+        telegramRows = [];
+        list.replaceChildren();
+        resetTelegramMetrics();
+        status.textContent = 'Não foi possível consultar as atividades do Telegram. Os dados locais não foram alterados.';
+      }
     } finally {
       telegramInspecting = false;
       refresh.disabled = !auth.isAuthenticated();
@@ -268,15 +326,26 @@
       '<p class="small" id="orbitaCloudAccount"></p>' +
       '<p class="small" id="orbitaCloudStatus" role="status" aria-live="polite"></p>' +
       '<div class="orbita-telegram-preview" aria-labelledby="orbitaTelegramTitle">' +
-      '<div class="orbita-telegram-heading"><div><h3 id="orbitaTelegramTitle">Recebidos do Telegram</h3>' +
-      '<p class="small muted">Prévia segura da sua nuvem — sem importar ou alterar registros neste aparelho.</p></div>' +
+      '<div class="orbita-telegram-heading"><div><h3 id="orbitaTelegramTitle">Atividades do Telegram</h3>' +
+      '<p class="small muted">Tarefas e ideias em nuvem, sem importar ou alterar os dados deste dispositivo.</p></div>' +
       '<button type="button" class="btn sm" id="orbitaTelegramRefresh">Atualizar</button></div>' +
+      '<div class="orbita-telegram-metrics" aria-label="Indicadores dos últimos 100 registros do Telegram">' +
+      '<div><span id="orbitaTelegramOpen">—</span><small>Em aberto</small></div>' +
+      '<div><span id="orbitaTelegramDone">—</span><small>Concluídas</small></div>' +
+      '<div><span id="orbitaTelegramIdeas">—</span><small>Ideias</small></div></div>' +
+      '<div class="orbita-telegram-filters">' +
+      '<label><span>Situação</span><select class="input" id="orbitaTelegramFilter">' +
+      '<option value="all">Todas</option><option value="open">Tarefas em aberto</option>' +
+      '<option value="done">Tarefas concluídas</option><option value="ideas">Ideias</option></select></label>' +
+      '<label><span>Pesquisar título</span><input class="input" type="search" id="orbitaTelegramSearch" maxlength="100" placeholder="Buscar na nuvem"></label></div>' +
       '<p class="small" id="orbitaTelegramStatus" role="status" aria-live="polite">Aguardando autenticação...</p>' +
-      '<ul class="orbita-telegram-list" id="orbitaTelegramList" aria-label="Últimos registros do Telegram"></ul></div>' +
+      '<ul class="orbita-telegram-list" id="orbitaTelegramList" aria-label="Atividades recentes do Telegram"></ul></div>' +
       '<div class="actions orbita-cloud-actions"><button id="orbitaCloudSync" type="button" class="btn primary">Conciliar registros agora</button></div>';
     parent.append(card);
     el('orbitaCloudSync').addEventListener('click', sync);
     el('orbitaTelegramRefresh').addEventListener('click', inspectTelegram);
+    el('orbitaTelegramFilter').addEventListener('change', renderTelegram);
+    el('orbitaTelegramSearch').addEventListener('input', renderTelegram);
     mode(allowed ? 'Aguardando autenticação para sincronizar.' : 'O projeto exclusivo do ORBITA ainda não está configurado.');
     renderButtons();
     auth.onReady(() => {
