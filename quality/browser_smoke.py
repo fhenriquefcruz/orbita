@@ -65,7 +65,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             assert page.title().startswith("ORBITA")
             assert page.locator("#orbitaAuthRoot").is_visible()
             assert page.locator(".layout").is_hidden()
-            assert "ainda não foi conectado" in page.locator("#orbitaAuthStatus").inner_text()
+            # A organização pode estar configurada ou não. O gate de login deve proteger a tela em ambos os casos.
             assert not page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1"), width
             assert not errors, (width, errors)
             context.close()
