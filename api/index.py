@@ -63,17 +63,26 @@ async def telegram_webhook(request: Request,
             state = memory.get_update(update_id)
             if state and state.get("status") == "processed":
                 return {"ok": True, "duplicate": True}
-            # Uma chamada está em andamento / um crash anterior requer inspeção manual.
+            if state and state.get("status") == "replied" and state.get("response"):
+                # Resposta ja preparada: NAO repetir /tarefa, /feito ou chamada a IA.
+                # Telegram nao fornece chave de idempotencia para sendMessage:
+                # a entrega pode ser repetida se o ACK do banco falhar apos o envio.
+                telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage",
+                              {"chat_id": owner_id, "text": state["response"][:3900]},
+                              timeout=10)
+                memory.finish_update(update_id)
+                return {"ok": True, "resumed": True}
+            # Claim "received" sem resposta exige investigacao: nao executar
+            # novamente comandos que podem modificar a memoria sem deduplicacao.
             return {"ok": True, "pending": True}
         content = message.get("text") or ""
         answer = reply_text(content, owner_id, memory,
                             os.environ.get("OPENAI_API_KEY", "").strip(),
                             os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
-        memory.finish_update(update_id, answer)
-        # Se a mensagem falhar, Telegram poderá tentar novamente. A resposta já
-        # está persistida para auditoria, evitando repetir a operação de registro.
+        memory.stage_reply(update_id, answer)
         telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage",
                       {"chat_id": owner_id, "text": answer[:3900]}, timeout=10)
+        memory.finish_update(update_id)
         return {"ok": True}
     except HTTPException:
         raise
