@@ -59,6 +59,7 @@ def mock_rest(route):
         "Access-Control-Allow-Headers": "authorization, apikey, prefer, content-type",
         "Content-Type": "application/json",
         "Content-Range": "0-0/2",
+        "Access-Control-Expose-Headers": "Content-Range",
     }
     if req.method == "OPTIONS":
         return route.fulfill(status=204, headers=headers)
