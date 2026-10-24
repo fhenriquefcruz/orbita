@@ -1,6 +1,6 @@
 # ORBITA 3.0 — Infraestrutura: guia de ativação segura
 
-> **Estado:** código pronto para configurar; integração real depende de Supabase exclusivo, conta Auth e segredos configurados em hospedagem privada. Não utilizar bancos de projetos alheios ao ORBITA.
+> **Situação em 24/10/2026:** projeto Supabase exclusivo ORBITA (`tbqfymedgdsdrgkqmuni`) já criado em São Paulo; migrações 001–003 aplicadas. Backend Vercel `orbita-api` compilado, porém Telegram **não ativado**. A autenticação real do painel e os testes de isolamento continuam em homologação (PR #7). Consulte `infra/TELEGRAM_ACTIVATION.md` para o procedimento atualizado.
 
 ## Arquitetura
 
@@ -12,7 +12,7 @@
 
 ## Passos para conectar sem publicar segredos
 
-1. **Criar um projeto Supabase exclusivo ORBITA** na sua organização escolhida, de preferência região `sa-east-1`. Outros projetos não devem ser reaproveitados. Confirmar possíveis custos antes de criar.
+1. **Concluído:** projeto `orbita` na organização `ORBITA`, região `sa-east-1`, plano Free (cotação de criação US$ 0/mês). Outros bancos não foram reutilizados.
 2. Executar `infra/supabase/001_core.sql` no SQL Editor desse projeto. Executar advisors de segurança e verificar RLS com duas contas independentes.
 3. Em Supabase Auth, criar/autorizar sua conta de acesso ao painel. Copiar **somente a URL pública e a chave `sb_publishable_...`** para `docs/cloud-config.js`. Esta chave é publicável e fica limitada pelo RLS. Não habilitar inscrição irrestrita sem necessidade.
 4. Publicar o frontend pelo GitHub Pages. Em **Dados e histórico → Memória central**, autenticar com sua conta. Primeiro revisar e baixar backup; depois escolher **Conciliar registros agora**. Conflitos usam `updated_at` mais recente; exclusões recebem tombstones. Não apagar o backup original antes de confirmar ambos os lados.
