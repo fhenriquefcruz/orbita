@@ -79,13 +79,27 @@ def mock_rest(route):
     query = parse_qs(urlsplit(req.url).query)
     if "payload->>source" in query:
         assert query["payload->>source"] == ["eq.Telegram ORBITA"]
-        assert query["limit"] == ["5"]
+        assert query["limit"] == ["100"]
         assert req.headers.get("prefer") != "count=exact"
-        telegram = [] if is_other else [{"id": "tg-1", "updated_at": "2026-10-24T20:11:00Z",
-                     "payload": {"id": "tg-1", "source": "Telegram ORBITA",
-                                 "title": '<img src=x onerror=alert(1)>',
-                                 "type": "tarefa", "priority": "P1", "status": "a_fazer"}}]
-        return route.fulfill(status=200, headers=headers, body=json.dumps(telegram))
+        items = [
+            {"id": "tg-1", "telegram_seq": 1, "updated_at": "2026-10-24T20:11:00Z",
+             "payload": {"id": "tg-1", "source": "Telegram ORBITA",
+                         "title": '<img src=x onerror=alert(1)>',
+                         "type": "tarefa", "priority": "P1", "status": "a_fazer"}},
+            {"id": "tg-2", "telegram_seq": 2, "updated_at": "2026-10-24T20:12:00Z",
+             "payload": {"id": "tg-2", "source": "Telegram ORBITA",
+                         "title": "Entregar documento", "type": "tarefa",
+                         "priority": "P2", "status": "concluida"}},
+            {"id": "tg-3", "telegram_seq": 3, "updated_at": "2026-10-24T20:13:00Z",
+             "payload": {"id": "tg-3", "source": "Telegram ORBITA",
+                         "title": "Ideia de design", "type": "ideia",
+                         "priority": "P3", "status": "a_fazer"}},
+            {"id": "tg-4", "telegram_seq": 4, "updated_at": "2026-10-24T20:14:00Z",
+             "payload": {"id": "tg-4", "source": "Telegram ORBITA",
+                         "title": "Reunião de integração", "type": "tarefa",
+                         "priority": "P1", "status": "em_andamento"}}
+        ]
+        return route.fulfill(status=200, headers=headers, body=json.dumps([] if is_other else items))
     assert req.headers.get("prefer") == "count=exact"
     if is_other:
         headers["Content-Range"] = "*/0"
@@ -144,11 +158,29 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         page.locator('.mobile-nav button[data-view="data"]').click()
         page.wait_for_function(
-            "document.querySelector('#orbitaTelegramStatus')?.textContent.includes('Últimos 1 registro(s)')"
+            "document.querySelector('#orbitaTelegramStatus')?.textContent.includes('Exibindo 4 de 4')"
         )
-        assert page.locator("#orbitaTelegramList li").count() == 1
+        assert page.locator("#orbitaTelegramList li").count() == 4
         assert page.locator("#orbitaTelegramList img").count() == 0, "Título remoto deve ser texto seguro"
-        assert page.locator("#orbitaTelegramList").inner_text().find("Em aberto") >= 0
+        assert page.locator("#orbitaTelegramOpen").inner_text() == "2"
+        assert page.locator("#orbitaTelegramDone").inner_text() == "1"
+        assert page.locator("#orbitaTelegramIdeas").inner_text() == "1"
+        page.locator("#orbitaTelegramFilter").select_option("done")
+        assert page.locator("#orbitaTelegramList li").count() == 1
+        assert "Entregar documento" in page.locator("#orbitaTelegramList").inner_text()
+        page.locator("#orbitaTelegramFilter").select_option("ideas")
+        assert page.locator("#orbitaTelegramList li").count() == 1
+        assert "Ideia de design" in page.locator("#orbitaTelegramList").inner_text()
+        page.locator("#orbitaTelegramFilter").select_option("open")
+        assert page.locator("#orbitaTelegramList li").count() == 2
+        page.locator("#orbitaTelegramFilter").select_option("all")
+        page.locator("#orbitaTelegramSearch").fill("reuniao")
+        assert page.locator("#orbitaTelegramList li").count() == 1, "Busca deve ignorar acentos"
+        assert "Reunião de integração" in page.locator("#orbitaTelegramList").inner_text()
+        page.locator("#orbitaTelegramSearch").fill("inexistente")
+        assert "Nenhum item corresponde aos filtros" in page.locator("#orbitaTelegramList").inner_text()
+        page.locator("#orbitaTelegramSearch").fill("")
+        assert page.locator("#orbitaTelegramList li").count() == 4
         assert page.evaluate(
             "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
         ) == 0, "Consulta não pode importar registros localmente"
@@ -156,6 +188,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.wait_for_function(
             "document.querySelector('#orbitaTelegramRefresh')?.disabled === false"
         )
+        assert page.locator("#orbitaTelegramList li").count() == 4
         page.locator('.mobile-nav button[data-view="records"]').click()
         assert page.locator("#view-records").is_visible()
         # Validação de scroll horizontal também depois da autenticação.
