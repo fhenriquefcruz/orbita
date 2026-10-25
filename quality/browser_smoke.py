@@ -292,7 +292,10 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         ) == ["deleted-new", "deleted-old"]
         assert "Mensagem anterior" in page.evaluate("localStorage.getItem('orbita_v13_chat')")
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
-        assert page.locator("#statOpen").inner_text() == "1"
+        page.wait_for_function(
+            "document.querySelector('#statOpen')?.textContent.trim() === '1' && "
+            "document.querySelector('#view-records')?.textContent.includes('Restaurada do backup')"
+        )
 
         page.locator("#orbitaSignOut").click()
         page.locator("#orbitaAuthRoot").wait_for(state="visible")
