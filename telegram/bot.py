@@ -15,6 +15,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from action_proposals import classify_action, parse_confirmation, new_code, preview, check_proposal
+from proposal_transport import inline_keyboard, callback_as_confirmation
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -462,7 +463,7 @@ def main() -> int:
     try:
         while True:
             try:
-                updates = telegram_call(token, "getUpdates", {"offset": offset, "timeout": 22, "allowed_updates": ["message"]}, timeout=30)
+                updates = telegram_call(token, "getUpdates", {"offset": offset, "timeout": 22, "allowed_updates": ["message", "callback_query"]}, timeout=30)
             except (HTTPError, URLError, TimeoutError, RuntimeError) as e:
                 label = e.code if isinstance(e, HTTPError) else type(e).__name__
                 LOG.warning("Falha no polling Telegram (%s), tentando novamente", label)
@@ -470,14 +471,21 @@ def main() -> int:
                 continue
             for event in updates:
                 offset = max(offset, event["update_id"] + 1)
-                msg = event.get("message") or {}
+                callback = event.get("callback_query") or {}
+                msg = (callback.get("message") if callback else event.get("message")) or {}
                 chat = msg.get("chat") or {}
-                sender = msg.get("from") or {}
+                sender = (callback.get("from") if callback else msg.get("from")) or {}
                 if chat.get("type") != "private" or sender.get("is_bot") or not sender.get("id"):
                     continue
                 uid = int(sender["id"])
                 chat_id = chat["id"]
-                message = msg.get("text", "")
+                if callback and chat_id != owner_id:
+                    continue
+                # Não executar callback desconhecido; somente códigos e ações permitidos.
+                message = (callback_as_confirmation(callback.get("data")) if callback
+                           else msg.get("text", ""))
+                if callback and not message:
+                    continue
                 if owner_id == 0:
                     result = (f"Seu Telegram ID é {uid}. Configure ORBITA_OWNER_ID no .env e reinicie o bot."
                               if message.strip().lower().startswith(("/id", "/start"))
@@ -491,11 +499,24 @@ def main() -> int:
                         LOG.exception("Erro interno no processamento do comando")
                         result = "Não consegui processar a solicitação. Tente novamente."
                 for i in range(0, len(result), 3900):
+                    payload = {"chat_id": chat_id, "text": result[i:i+3900]}
+                    if i == 0:
+                        keyboard = inline_keyboard(result) if not callback and classify_action(message) else None
+                        if keyboard:
+                            payload["reply_markup"] = keyboard
                     try:
-                        telegram_call(token, "sendMessage", {"chat_id": chat_id, "text": result[i:i+3900]}, timeout=12)
+                        telegram_call(token, "sendMessage", payload, timeout=12)
                     except (HTTPError, URLError, TimeoutError, RuntimeError) as e:
                         code = e.code if isinstance(e, HTTPError) else type(e).__name__
                         LOG.warning("Falha ao enviar mensagem Telegram (%s)", code)
+                if callback.get("id"):
+                    # Confirma a recepção para encerrar o spinner do Telegram;
+                    # isto não substitui a verificação de gravação do banco.
+                    try:
+                        telegram_call(token, "answerCallbackQuery",
+                                      {"callback_query_id": callback["id"]}, timeout=10)
+                    except (HTTPError, URLError, TimeoutError, RuntimeError):
+                        LOG.warning("Não foi possível reconhecer o botão no Telegram")
     except KeyboardInterrupt:
         print("ORBITA finalizado pelo operador.")
         return 0
