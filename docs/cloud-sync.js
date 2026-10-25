@@ -8,7 +8,7 @@
   const core = window.OrbitaCloudCore;
   const STORE = 'orbita_v12_local', TOMBSTONES = 'orbita_cloud_tombstones_v1';
   const BINDING = 'orbita_cloud_binding_v1';
-  let accountId = '', busy = false, dirty = false, inspecting = false;
+  let accountId = '', busy = false, dirty = false, inspecting = false, previewing = false;
   let lastRemoteCount = null;
   const base = (config.url || '').replace(/\/$/, '');
   const allowed = /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(base) &&
@@ -65,6 +65,7 @@
   function renderButtons() {
     if (el('orbitaCloudSync')) el('orbitaCloudSync').disabled = busy || !auth.isAuthenticated();
     if (el('orbitaCloudInspect')) el('orbitaCloudInspect').disabled = inspecting || busy || !auth.isAuthenticated();
+    if (el('orbitaCloudPreview')) el('orbitaCloudPreview').disabled = previewing || busy || !auth.isAuthenticated();
   }
   function dashboardStatus(text) {
     setText('orbitaCloudDashboardStatus', text);
@@ -135,6 +136,45 @@
       if (navigation) navigation.click();
     });
   }
+  function summaryForPlan(plan) {
+    const s = plan.stats;
+    return s.fromCloud + ' a receber, ' + s.replacedByCloud +
+      ' atualização(ões) da nuvem, ' + s.create + ' nova(s) a enviar, ' +
+      s.update + ' atualização(ões) a enviar, ' + s.delete +
+      ' exclusão(ões), ' + s.conflicts + ' conflito(s).';
+  }
+  function displayPreview(plan) {
+    const message = el('orbitaCloudPreviewStatus');
+    if (!message) return;
+    if (plan.conflicts.length) {
+      message.textContent = 'Conflitos detectados (' + plan.conflicts.length +
+        '): mesmos registros com revisões ambíguas. Nenhuma gravação é permitida; ' +
+        'revise os dados e preserve seus backups. ' + summaryForPlan(plan);
+    } else {
+      message.textContent = 'Simulação segura: ' + summaryForPlan(plan) +
+        ' Total após conciliação: ' + plan.stats.after +
+        '. Ainda não foi gravado nada.';
+    }
+  }
+  async function inspectPlan() {
+    if (!auth.isAuthenticated() || busy || previewing) return;
+    const owner = auth.getUser().id;
+    previewing = true;
+    renderButtons();
+    setText('orbitaCloudPreviewStatus', 'Comparando dados sem gravar...');
+    try {
+      const local = localData(), deleted = tombstones();
+      const remote = await loadCloud();
+      if (!sameAccount(owner)) return;
+      displayPreview(core.reconcile(local.records, remote, deleted));
+    } catch (_) {
+      if (sameAccount(owner)) setText('orbitaCloudPreviewStatus',
+        'A simulação não pôde ser concluída. Os dados locais não foram alterados.');
+    } finally {
+      previewing = false;
+      renderButtons();
+    }
+  }
   async function sync() {
     if (!auth.isAuthenticated() || busy) return;
     const operationAccount = auth.getUser().id;
@@ -149,6 +189,10 @@
       if (!sameAccount(operationAccount)) throw Error('A conta mudou durante a leitura. Refaça a conciliação.');
       const deleted = tombstones();
       const plan = core.reconcile(snapshot.records, remote, deleted);
+      displayPreview(plan);
+      if (plan.conflicts.length) throw Error(
+        'Existem ' + plan.conflicts.length + ' revisão(ões) conflitantes; nenhuma gravação foi iniciada');
+      const versions = new Map(remote.map(row => [row.id, row.updated_at]));
       const detail = `${snapshot.records.length} locais, ${remote.length} na nuvem, ` +
         `${plan.upserts.length} a enviar, ${plan.deletions.length} exclusões e ` +
         `${plan.records.length} após conciliação.`;
@@ -170,16 +214,44 @@
       }
       for (const item of plan.upserts) {
         if (!sameAccount(operationAccount)) throw Error('A conta mudou durante o envio.');
-        await request('/rest/v1/orbita_records?on_conflict=id', 'POST', {
-          id: item.id, user_id: operationAccount, payload: item,
-          created_at: item.created_at || new Date().toISOString(),
-          updated_at: item.updated_at || new Date().toISOString()
-        }, {prefer: 'resolution=merge-duplicates,return=minimal'});
+        const now = item.updated_at || new Date().toISOString();
+        const oldVersion = versions.get(item.id);
+        let result;
+        if (versions.has(item.id)) {
+          if (!oldVersion || !Number.isFinite(Date.parse(oldVersion))) {
+            throw Error('Revisão remota indisponível; operação interrompida');
+          }
+          // PATCH condicional: se Telegram/outra aba editou desde o GET, retorna [].
+          const params = new URLSearchParams({
+            id:'eq.' + item.id, updated_at:'eq.' + oldVersion
+          });
+          result = await request('/rest/v1/orbita_records?' + params.toString(),
+            'PATCH', {payload:item, updated_at:now}, {prefer:'return=representation'});
+        } else {
+          // Nunca fazer merge-duplicates de criação: colisão de ID deve falhar.
+          result = await request('/rest/v1/orbita_records', 'POST', {
+            id:item.id, user_id:operationAccount, payload:item,
+            created_at:item.created_at || now, updated_at:now
+          }, {prefer:'return=representation'});
+        }
+        if (!Array.isArray(result) || result.length !== 1) {
+          throw Error('Um registro mudou na nuvem durante a gravação. Interrompido para evitar sobrescrita.');
+        }
       }
       for (const id of plan.deletions) {
         if (!sameAccount(operationAccount)) throw Error('A conta mudou durante as exclusões.');
-        await request('/rest/v1/orbita_records?id=eq.' + encodeURIComponent(id), 'DELETE',
-          undefined, {prefer:'return=minimal'});
+        const oldVersion = versions.get(id);
+        if (!oldVersion || !Number.isFinite(Date.parse(oldVersion))) {
+          throw Error('Revisão da exclusão indisponível; operação interrompida');
+        }
+        const params = new URLSearchParams({
+          id:'eq.' + id, updated_at:'eq.' + oldVersion
+        });
+        const result = await request('/rest/v1/orbita_records?' + params.toString(),
+          'DELETE', undefined, {prefer:'return=representation'});
+        if (!Array.isArray(result) || result.length !== 1) {
+          throw Error('A exclusão foi cancelada: o registro remoto mudou desde a comparação.');
+        }
       }
       const clear = {...deleted};
       plan.clearTombstones.concat(plan.deletions).forEach(id => delete clear[id]);
@@ -340,9 +412,16 @@
       '<label><span>Pesquisar título</span><input class="input" type="search" id="orbitaTelegramSearch" maxlength="100" placeholder="Buscar na nuvem"></label></div>' +
       '<p class="small" id="orbitaTelegramStatus" role="status" aria-live="polite">Aguardando autenticação...</p>' +
       '<ul class="orbita-telegram-list" id="orbitaTelegramList" aria-label="Atividades recentes do Telegram"></ul></div>' +
-      '<div class="actions orbita-cloud-actions"><button id="orbitaCloudSync" type="button" class="btn primary">Conciliar registros agora</button></div>';
+      '<div class="orbita-cloud-preflight" aria-label="Prévia da conciliação manual">' +
+      '<strong>Antes de sincronizar</strong>' +
+      '<p class="small muted">Confira quantos registros serão recebidos, enviados ou excluídos. Esta análise é somente de leitura.</p>' +
+      '<p class="small" id="orbitaCloudPreviewStatus" role="status" aria-live="polite">Nenhuma simulação executada.</p></div>' +
+      '<div class="actions orbita-cloud-actions">' +
+      '<button id="orbitaCloudPreview" type="button" class="btn">Simular sem alterar</button>' +
+      '<button id="orbitaCloudSync" type="button" class="btn primary">Conciliar registros agora</button></div>';
     parent.append(card);
     el('orbitaCloudSync').addEventListener('click', sync);
+    el('orbitaCloudPreview').addEventListener('click', inspectPlan);
     el('orbitaTelegramRefresh').addEventListener('click', inspectTelegram);
     el('orbitaTelegramFilter').addEventListener('change', renderTelegram);
     el('orbitaTelegramSearch').addEventListener('input', renderTelegram);
