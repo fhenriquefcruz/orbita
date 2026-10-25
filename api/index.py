@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "telegram"))
 from bot import reply_text, telegram_call  # noqa: E402
 from cloud_memory import CloudMemory  # noqa: E402
 from proposal_transport import inline_keyboard, callback_as_confirmation  # noqa: E402
+from action_proposals import classify_action  # noqa: E402
 
 app = FastAPI(title="ORBITA API", docs_url=None, redoc_url=None, openapi_url=None)
 LOGGER = logging.getLogger("orbita.webhook")
@@ -78,7 +79,7 @@ async def telegram_webhook(request: Request,
         memory.finish_update(update_id, answer)
         # A mensagem leva botões somente se for uma proposta emitida pelo servidor.
         payload = {"chat_id": owner_id, "text": answer[:3900]}
-        buttons = inline_keyboard(answer)
+        buttons = inline_keyboard(answer) if not callback and classify_action(content) else None
         if buttons:
             payload["reply_markup"] = buttons
         # Se a mensagem falhar, Telegram poderá tentar novamente. A resposta já
