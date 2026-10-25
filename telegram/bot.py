@@ -501,7 +501,7 @@ def main() -> int:
                 for i in range(0, len(result), 3900):
                     payload = {"chat_id": chat_id, "text": result[i:i+3900]}
                     if i == 0:
-                        keyboard = inline_keyboard(result)
+                        keyboard = inline_keyboard(result) if not callback and classify_action(message) else None
                         if keyboard:
                             payload["reply_markup"] = keyboard
                     try:
