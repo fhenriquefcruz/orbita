@@ -533,3 +533,28 @@ html[data-orbita-theme="night"] .orbita-telegram-empty{
   .orbita-telegram-filters{grid-template-columns:1fr;gap:10px}
   .orbita-telegram-filters .input{min-height:44px}
 }
+
+/* ORBITA 3.7 — Prévia conservadora da conciliação */
+.orbita-cloud-preflight{
+  margin-top:20px;padding:15px 16px;border:1px solid #D8E0F3;
+  border-radius:14px;background:linear-gradient(110deg,#F8F9FF,#FFFFFF);
+}
+.orbita-cloud-preflight strong{
+  font:800 13px/1.5 var(--orbita-heading);color:#243152;
+}
+.orbita-cloud-preflight .small{margin:6px 0 0;line-height:1.6}
+.orbita-cloud-preflight [role="status"]{
+  overflow-wrap:anywhere;color:#445476;line-height:1.75;
+}
+.orbita-cloud-panel .orbita-cloud-actions{gap:10px;flex-wrap:wrap}
+.orbita-cloud-panel .orbita-cloud-actions .btn{min-height:42px}
+html[data-orbita-theme="night"] .orbita-cloud-preflight{
+  border-color:#44506F;background:linear-gradient(110deg,#222B44,#1B263E)
+}
+html[data-orbita-theme="night"] .orbita-cloud-preflight strong{color:#EAF0FF}
+html[data-orbita-theme="night"] .orbita-cloud-preflight [role="status"]{color:#C6D2E7}
+@media(max-width:700px){
+  .orbita-cloud-preflight{padding:13px;border-radius:12px}
+  .orbita-cloud-panel .orbita-cloud-actions{display:grid;grid-template-columns:1fr}
+  .orbita-cloud-panel .orbita-cloud-actions .btn{min-height:44px}
+}

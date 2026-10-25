@@ -1,39 +1,91 @@
-/* ORBITA 3.0 | Funções puras de conciliação de registros. Nenhuma credencial neste arquivo. */
+/* ORBITA 3.7 | Conciliação pura e conservadora: conflitos não são decididos silenciosamente. */
 (function (root) {
   'use strict';
   const stamp = x => {
     const n = Date.parse(x || '');
     return Number.isFinite(n) ? n : 0;
   };
+  // JSONB pode alterar a ordem das chaves. Comparação canônica não produz falsos conflitos.
+  const canonical = value => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === 'object') {
+      const result = Object.create(null);
+      for (const key of Object.keys(value).sort()) result[key] = canonical(value[key]);
+      return result;
+    }
+    return value;
+  };
+  const samePayload = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+
   function reconcile(local, cloudRows, tombstones = {}) {
-    const mine = new Map();
-    const remote = new Map();
-    for (const x of local) if (x && typeof x.id === 'string' && x.id.length <= 128) mine.set(x.id, x);
-    for (const row of cloudRows) if (row && typeof row.id === 'string' && row.payload && row.payload.id === row.id)
-      remote.set(row.id, row.payload);
+    const mine = new Map(), remote = new Map();
+    for (const x of local) {
+      if (x && typeof x.id === 'string' && x.id.length > 0 && x.id.length <= 128) mine.set(x.id, x);
+    }
+    for (const row of cloudRows) {
+      if (row && typeof row.id === 'string' && row.id.length > 0 && row.payload &&
+          row.payload.id === row.id) remote.set(row.id, row.payload);
+    }
     const merged = new Map(mine);
-    const upserts = [];
-    const deletions = [];
-    const clearTombstones = [];
+    const upserts = [], deletions = [], clearTombstones = [], conflicts = [];
     const supersededDeletions = new Set();
+    let fromCloud = 0, replacedByCloud = 0;
     for (const [id, other] of remote) {
-      const deletedAt = stamp(tombstones[id]);
-      if (deletedAt && deletedAt >= stamp(other.updated_at)) {
+      const original = mine.get(id);
+      const tombstone = tombstones[id];
+      const deletedAt = stamp(tombstone);
+      const remoteAt = stamp(other.updated_at);
+      if (tombstone && !deletedAt) {
+        conflicts.push({id, reason:'invalid_deletion_time'});
+        continue;
+      }
+      if (deletedAt && remoteAt && deletedAt >= remoteAt) {
         merged.delete(id);
         deletions.push(id);
         continue;
       }
-      if (tombstones[id]) { clearTombstones.push(id); supersededDeletions.add(id); }
-      const original = mine.get(id);
-      if (!original || stamp(other.updated_at) >= stamp(original.updated_at)) merged.set(id, other);
+      if (tombstone && !remoteAt) {
+        conflicts.push({id, reason:'unknown_remote_time'});
+        continue;
+      }
+      if (tombstone) {
+        clearTombstones.push(id);
+        supersededDeletions.add(id);
+      }
+      if (original && !tombstone && !samePayload(original, other)) {
+        const localAt = stamp(original.updated_at);
+        if (!localAt || !remoteAt || localAt === remoteAt) {
+          conflicts.push({id, reason:'ambiguous_revision'});
+          continue;
+        }
+      }
+      if (!original) {
+        merged.set(id, other);
+        fromCloud++;
+      } else if (remoteAt >= stamp(original.updated_at)) {
+        if (!samePayload(original, other)) replacedByCloud++;
+        merged.set(id, other);
+      }
     }
     for (const [id, item] of mine) {
-      if (tombstones[id]) { if (!supersededDeletions.has(id)) merged.delete(id); continue; }
+      if (tombstones[id]) {
+        if (!supersededDeletions.has(id)) merged.delete(id);
+        continue;
+      }
+      if (conflicts.some(c => c.id === id)) continue;
       const r = remote.get(id);
       if (!r || stamp(item.updated_at) > stamp(r.updated_at)) upserts.push(item);
     }
     for (const id of Object.keys(tombstones)) if (!remote.has(id)) clearTombstones.push(id);
-    return {records: Array.from(merged.values()), upserts, deletions, clearTombstones};
+    const stats = {
+      local:mine.size, cloud:remote.size, after:merged.size,
+      fromCloud, replacedByCloud,
+      create:upserts.filter(item => !remote.has(item.id)).length,
+      update:upserts.filter(item => remote.has(item.id)).length,
+      delete:deletions.length, conflicts:conflicts.length
+    };
+    return {records:Array.from(merged.values()), upserts, deletions,
+      clearTombstones, conflicts, stats};
   }
   const api = Object.freeze({reconcile, stamp});
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

@@ -71,7 +71,15 @@ def mock_rest(route):
     }
     if req.method == "OPTIONS":
         return route.fulfill(status=204, headers=headers)
-    assert req.method == "GET", "A prévia do Telegram não deve gravar registros"
+    if req.method == "PATCH":
+        # Concorrência simulada: servidor alterou a revisão após a leitura.
+        query = parse_qs(urlsplit(req.url).query)
+        assert query.get("id") == ["eq.tg-1"]
+        assert query.get("updated_at") == ["eq.2026-10-24T20:11:00Z"]
+        assert req.headers.get("prefer") == "return=representation"
+        assert req.headers.get("authorization") == "Bearer test_access_token_owner"
+        return route.fulfill(status=200, headers=headers, body="[]")
+    assert req.method == "GET", "Consultas não podem gravar registros sem comando explícito"
     assert "/rest/v1/orbita_records?" in req.url
     authorization = req.headers.get("authorization")
     assert authorization in ("Bearer test_access_token_owner", "Bearer test_access_token_other")
@@ -100,6 +108,16 @@ def mock_rest(route):
                          "priority": "P1", "status": "em_andamento"}}
         ]
         return route.fulfill(status=200, headers=headers, body=json.dumps([] if is_other else items))
+    if query.get("select") == ["id,payload,updated_at"]:
+        assert query["limit"] == ["500"]
+        assert req.headers.get("prefer") != "count=exact"
+        preview = [] if is_other else [
+            {"id": "tg-1", "updated_at": "2026-10-24T20:11:00Z",
+             "payload": {"id": "tg-1", "title": "Teste de conciliação",
+                         "type": "tarefa", "status": "a_fazer",
+                         "updated_at": "2026-10-24T20:11:00Z"}}
+        ]
+        return route.fulfill(status=200, headers=headers, body=json.dumps(preview))
     assert req.headers.get("prefer") == "count=exact"
     if is_other:
         headers["Content-Range"] = "*/0"
@@ -189,6 +207,14 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             "document.querySelector('#orbitaTelegramRefresh')?.disabled === false"
         )
         assert page.locator("#orbitaTelegramList li").count() == 4
+        page.locator("#orbitaCloudPreview").click()
+        page.wait_for_function(
+            "document.querySelector('#orbitaCloudPreviewStatus')?.textContent.includes('1 a receber')"
+        )
+        assert "Ainda não foi gravado nada" in page.locator("#orbitaCloudPreviewStatus").inner_text()
+        assert page.evaluate(
+            "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
+        ) == 0, "Prévia de conciliação não pode salvar dados locais"
         page.locator('.mobile-nav button[data-view="records"]').click()
         assert page.locator("#view-records").is_visible()
         # Validação de scroll horizontal também depois da autenticação.
@@ -257,11 +283,48 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         assert "Nenhum registro do Telegram nesta conta" in other_page.locator("#orbitaTelegramList").inner_text()
         assert other_page.locator("#orbitaTelegramList .orbita-telegram-empty").count() == 1
+        other_page.locator("#orbitaCloudPreview").click()
+        other_page.wait_for_function(
+            "document.querySelector('#orbitaCloudPreviewStatus')?.textContent.includes('0 a receber')"
+        )
         assert other_page.evaluate(
             "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
         ) == 0
         assert not other_errors, other_errors
         isolated.close()
-        print("Browser smoke: 8 viewports, Auth, Telegram read-only, troca de conta bloqueada e sessão separada: OK")
+
+        # Um PATCH concorrente que afeta zero registros deve interromper a conciliação.
+        conflict = browser.new_context(viewport={"width": 390, "height": 844}, accept_downloads=True)
+        conflict_page = conflict.new_page()
+        conflict_errors = []
+        conflict_page.on("pageerror", lambda err: conflict_errors.append(str(err)))
+        conflict_page.route("**/cloud-config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
+                 "',publishableKey:'sb_publishable_public_test'};"))
+        conflict_page.route(ORIGIN + "/**", mock_api)
+        conflict_page.route(ORIGIN + "/rest/v1/**", mock_rest)
+        conflict_page.goto(url + "#/data", wait_until="networkidle")
+        conflict_page.locator("#orbitaAuthEmail").fill("owner@example.test")
+        conflict_page.locator("#orbitaAuthPassword").fill("strong-password-example")
+        conflict_page.locator("#orbitaAuthLogin button[type=submit]").click()
+        conflict_page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        local_item = {"id": "tg-1", "title": "Local mais recente",
+                      "type": "tarefa", "updated_at": "2026-10-24T20:12:00Z"}
+        conflict_page.evaluate(
+            "(item) => localStorage.setItem('orbita_v12_local', JSON.stringify("
+            "{schema_version:1,records:[item],audit:[]}))", local_item)
+        conflict_page.evaluate("window.confirm = () => true")
+        conflict_page.locator("#orbitaCloudSync").click()
+        conflict_page.wait_for_function(
+            "document.querySelector('#orbitaCloudStatus')?.textContent.includes('Sincronização não concluída')"
+        )
+        assert "mudou na nuvem" in conflict_page.locator("#orbitaCloudStatus").inner_text()
+        assert conflict_page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].title"
+        ) == "Local mais recente", "Falha remota não pode sobrescrever o backup local"
+        assert not conflict_errors, conflict_errors
+        conflict.close()
+        print("Browser smoke: Auth, isolamento, prévia sem escrita e concorrência PATCH protegida: OK")
         browser.close()
     server.shutdown()
