@@ -558,3 +558,12 @@ html[data-orbita-theme="night"] .orbita-cloud-preflight [role="status"]{color:#C
   .orbita-cloud-panel .orbita-cloud-actions{display:grid;grid-template-columns:1fr}
   .orbita-cloud-panel .orbita-cloud-actions .btn{min-height:44px}
 }
+
+/* ORBITA 3.8 — Retorno da importação unidirecional */
+.orbita-cloud-panel #orbitaCloudImportStatus{
+  margin:11px 0 4px;color:#586582;font-size:11px;line-height:1.65;
+  overflow-wrap:anywhere;
+}
+html[data-orbita-theme="night"] .orbita-cloud-panel #orbitaCloudImportStatus{
+  color:#C4D1E8;
+}
