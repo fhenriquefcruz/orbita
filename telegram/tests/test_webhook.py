@@ -89,6 +89,94 @@ class TestWebhook(unittest.TestCase):
         self.assertTrue(response.json().get('ignored'))
         cloud.assert_not_called()
 
+    def test_v2_replays_saved_reply_after_failed_delivery_without_reexecuting(self):
+        update={'update_id':130,'message':{'chat':{'id':54321,'type':'private'},
+               'from':{'id':54321},'text':'/tarefa P1 | Fechar relatório'}}
+        config={**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'1'}
+        with patch.dict(os.environ,config):
+            with patch('api.index.CloudMemory') as cloud, patch(
+                    'api.index.reply_text', return_value='✅ Registro #42 salvo') as reply, patch(
+                    'api.index.telegram_call') as telegram:
+                mem=cloud.return_value
+                mem.claim_update.side_effect=[True,False]
+                mem.get_update.return_value={
+                    'status':'processed','response':'✅ Registro #42 salvo'}
+                mem.mark_delivered.return_value=True
+                telegram.side_effect=[TimeoutError('Telegram offline'), {'message_id':7}]
+                first=self.client.post('/api/telegram',json=update,headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+                self.assertEqual(first.status_code,503)
+                second=self.client.post('/api/telegram',json=update,headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(second.status_code,200)
+        self.assertTrue(second.json().get('replayed'))
+        reply.assert_called_once()
+        mem.finish_update.assert_called_once()
+        mem.mark_delivered.assert_called_once_with(130)
+        self.assertEqual(telegram.call_count,2)
+        self.assertEqual(telegram.call_args.kwargs['timeout'],10)
+
+    def test_v2_delivered_update_is_not_sent_twice(self):
+        update={'update_id':131,'message':{'chat':{'id':54321,'type':'private'},
+                'from':{'id':54321},'text':'/tarefas'}}
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'1'}):
+            with patch('api.index.CloudMemory') as cloud, patch(
+                    'api.index.reply_text') as reply, patch(
+                    'api.index.telegram_call') as telegram:
+                cloud.return_value.claim_update.return_value=False
+                cloud.return_value.get_update.return_value={'status':'delivered'}
+                response=self.client.post('/api/telegram',json=update,headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(response.status_code,200)
+        self.assertTrue(response.json().get('duplicate'))
+        reply.assert_not_called()
+        telegram.assert_not_called()
+
+    def test_v2_pending_without_response_never_reexecutes_action(self):
+        update={'update_id':132,'message':{'chat':{'id':54321,'type':'private'},
+                'from':{'id':54321},'text':'confirmar ABCDEF123456'}}
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'1'}):
+            with patch('api.index.CloudMemory') as cloud, patch(
+                    'api.index.reply_text') as reply, patch(
+                    'api.index.telegram_call') as telegram:
+                cloud.return_value.claim_update.return_value=False
+                cloud.return_value.get_update.return_value={'status':'received','response':None}
+                response=self.client.post('/api/telegram',json=update,headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(response.status_code,200)
+        self.assertTrue(response.json().get('pending'))
+        reply.assert_not_called()
+        telegram.assert_not_called()
+
+    def test_v2_mark_delivered_failure_cannot_claim_success(self):
+        update={'update_id':133,'message':{'chat':{'id':54321,'type':'private'},
+                'from':{'id':54321},'text':'/tarefas'}}
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'1'}):
+            with patch('api.index.CloudMemory') as cloud, patch(
+                    'api.index.reply_text',return_value='Lista de tarefas'), patch(
+                    'api.index.telegram_call') as telegram:
+                cloud.return_value.claim_update.return_value=True
+                cloud.return_value.mark_delivered.return_value=False
+                response=self.client.post('/api/telegram',json=update,headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(response.status_code,503)
+        cloud.return_value.finish_update.assert_called_once()
+        telegram.assert_called_once()
+
+    def test_legacy_mode_does_not_require_new_schema(self):
+        update={'update_id':134,'message':{'chat':{'id':54321,'type':'private'},
+                'from':{'id':54321},'text':'/tarefas'}}
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'0'}):
+            with patch('api.index.CloudMemory') as cloud, patch(
+                    'api.index.reply_text',return_value='Lista de tarefas'), patch(
+                    'api.index.telegram_call') as telegram:
+                cloud.return_value.claim_update.return_value=True
+                response=self.client.post('/api/telegram',json=update,headers={
+                    'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(response.status_code,200)
+        cloud.return_value.mark_delivered.assert_not_called()
+        telegram.assert_called_once()
+
     def test_another_user_ignored_even_with_valid_secret(self):
         update={'update_id':7,'message':{'chat':{'id':111,'type':'private'},'from':{'id':111},'text':'Olá'}}
         with patch.dict(os.environ,self.config):

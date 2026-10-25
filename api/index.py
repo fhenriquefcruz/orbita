@@ -66,32 +66,51 @@ async def telegram_webhook(request: Request,
     if callback and not content:
         return {"ok": True, "ignored": True}
     memory = CloudMemory(cfg["SUPABASE_URL"], cfg["SUPABASE_SECRET_KEY"], cfg["ORBITA_USER_UUID"])
+    # Ativar SOMENTE após homologar infra/supabase/003_telegram_delivery.sql.
+    # No modo legado, mantém-se o comportamento anterior sem usar 'delivered'.
+    verified_delivery = os.environ.get("ORBITA_WEBHOOK_DELIVERY_V2_ENABLED") == "1"
     try:
+        replay = False
         if not memory.claim_update(update_id):
             state = memory.get_update(update_id)
-            if state and state.get("status") == "processed":
+            if state and state.get("status") == "delivered":
                 return {"ok": True, "duplicate": True}
-            # Uma chamada está em andamento / um crash anterior requer inspeção manual.
-            return {"ok": True, "pending": True}
-        answer = reply_text(content, owner_id, memory,
-                            os.environ.get("OPENAI_API_KEY", "").strip(),
-                            os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
-        memory.finish_update(update_id, answer)
-        # A mensagem leva botões somente se for uma proposta emitida pelo servidor.
+            if state and state.get("status") == "processed":
+                if not verified_delivery:
+                    return {"ok": True, "duplicate": True}
+                answer = state.get("response")
+                if not isinstance(answer, str) or not answer.strip():
+                    # Não tentar inferir nem executar novamente a ação original.
+                    return {"ok": True, "pending": True}
+                replay = True
+            else:
+                # Recebido mas não processado: pode haver um worker em andamento.
+                # NÃO reexecutar ações; a recuperação de 'received' precisa de lease.
+                return {"ok": True, "pending": True}
+        else:
+            answer = reply_text(content, owner_id, memory,
+                                os.environ.get("OPENAI_API_KEY", "").strip(),
+                                os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
+            # Só enviar depois de armazenar a resposta de forma verificável.
+            memory.finish_update(update_id, answer)
         payload = {"chat_id": owner_id, "text": answer[:3900]}
         buttons = inline_keyboard(answer) if not callback and classify_action(content) else None
         if buttons:
             payload["reply_markup"] = buttons
-        # Se a mensagem falhar, Telegram poderá tentar novamente. A resposta já
-        # está persistida para auditoria, evitando repetir a operação de registro.
+        # Se sendMessage falhar, o Telegram repetirá o update. Com v2 ativo,
+        # recuperamos a resposta salva sem recriar a tarefa.
         telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage", payload, timeout=10)
+        if verified_delivery and not memory.mark_delivered(update_id):
+            # Entrega pode ter ocorrido. Ao repetir pode chegar mensagem dupla,
+            # mas a ação de registro não é reexecutada (sem falsa promessa exactly-once).
+            raise RuntimeError("Falha ao confirmar estado de entrega do Telegram")
         if callback.get("id"):
             try:
                 telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "answerCallbackQuery",
                               {"callback_query_id": callback["id"]}, timeout=10)
             except Exception as exc:
                 LOGGER.warning("Falha ao reconhecer botão Telegram (%s)", type(exc).__name__)
-        return {"ok": True}
+        return {"ok": True, "replayed": True} if replay else {"ok": True}
     except HTTPException:
         raise
     except Exception as exc:
