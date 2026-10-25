@@ -333,7 +333,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             "JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1'))"
         )
         assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
-        page.evaluate("Storage.prototype.setItem = window.__orbitaOriginalSetItem")
+        page.evaluate("() => { Storage.prototype.setItem = window.__orbitaOriginalSetItem; }")
         page.locator('button[data-delete="restored-r1"]').click()
         page.wait_for_function(
             "(JSON.parse(localStorage.getItem('orbita_v12_local')||'{}').records||[]).length === 0"
