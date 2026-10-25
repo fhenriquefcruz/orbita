@@ -107,6 +107,7 @@
 <div class="modal-backdrop" id="modal"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="formTitle"><div class="modal-head"><div><div class="eyebrow">MEMÓRIA ORBITA</div><h2 id="formTitle">Novo registro</h2></div><button class="btn sm" id="closeModal" aria-label="Fechar">✕</button></div><form id="recordForm"><input type="hidden" id="fId"><div class="formgrid"><div class="field full"><label for="fTitle">Título *</label><input id="fTitle" class="input" minlength="2" maxlength="240" required placeholder="O que você precisa lembrar, decidir ou executar?"></div><div class="field"><label for="fType">Natureza</label><select id="fType"></select></div><div class="field"><label for="fContext">Área</label><select id="fContext"></select></div><div class="field"><label for="fPriority">Prioridade</label><select id="fPriority"><option>P0</option><option>P1</option><option selected>P2</option><option>P3</option></select></div><div class="field"><label for="fStatus">Situação</label><select id="fStatus"></select></div><div class="field"><label for="fDue">Prazo ou início (opcional)</label><input id="fDue" type="datetime-local" class="input"></div><div class="field"><label for="fNotify">Tipo de acompanhamento</label><select id="fNotify"><option value="summary">Próximo resumo</option><option value="before_due">Antes do prazo</option><option value="immediate">Alerta imediato (quando permitido)</option><option value="silent">Sem notificações</option></select></div><div class="field"><label for="fCertainty">Confiabilidade do registro</label><select id="fCertainty"><option value="confirmado">Confirmado</option><option value="nao_verificado">Não verificado</option><option value="inferencia">Inferência</option><option value="sugestao">Sugestão</option></select></div><div class="field"><label for="fSensitivity">Sensibilidade</label><select id="fSensitivity"><option value="pessoal">Pessoal</option><option value="publico">Público</option><option value="restrito">Restrito</option></select></div><div class="field full"><label for="fSource">Origem da informação</label><input id="fSource" class="input" value="Cadastro manual" placeholder="Ex.: reunião, arquivo ou anotação"></div><div class="field full"><label for="fNotes">Descrição, observações e próxima ação</label><textarea id="fNotes" placeholder="Registre o que será feito, dependências e informações essenciais."></textarea></div><div class="field full"><label class="checkbox"><input type="checkbox" id="fMorning"> Precisa de ação antes do próximo resumo das 07h30 (apenas urgências confirmadas)</label></div></div><div class="form-actions"><button type="button" class="btn ghost" id="cancelModal">Cancelar</button><button type="submit" class="btn primary">Salvar registro</button></div></form></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <script src="./cloud-config.js"></script>
+<script src="./local-integrity.js"></script>
 <script src="./auth.js"></script>
 <script>
 (function(){'use strict';
@@ -128,7 +129,40 @@ async function loadServer(){records=await api('/records');audits=await api('/aud
 function loadLocal(){try{let d=JSON.parse(localStorage.getItem(STORE)||'{}');records=Array.isArray(d.records)?d.records:[];audits=Array.isArray(d.audit)?d.audit:[]}catch(e){records=[];audits=[];notice('Não foi possível abrir a memória local')}}
 function saveLocal(){try{localStorage.setItem(STORE,JSON.stringify({schema_version:1,records,audit:audits}));window.dispatchEvent(new Event('orbita:local-change'))}catch(e){throw Error('Armazenamento indisponível. Nada foi confirmado; exporte seus dados.')}}
 function addAudit(id,action){audits.unshift({id:uuid(),record_id:id,action,occurred_at:now()});audits=audits.slice(0,200)}
-async function saveRecord(data,id){try{if(data.status==='concluida'){const previous=id?records.find(x=>x.id===id):null;data.completed_at=previous?.status==='concluida'?(previous.completed_at||previous.updated_at):now()}else{data.completed_at=null}if(server){if(id)await api('/records/'+encodeURIComponent(id),'PATCH',data);else await api('/records','POST',data);await loadServer()}else{if(id){const old=records.find(x=>x.id===id);if(!old)throw Error('Registro ausente');Object.assign(old,data,{owner:OWNERS[data.type],updated_at:now()});addAudit(id,'updated')}else{let item={...data,id:uuid(),owner:OWNERS[data.type],created_at:now(),updated_at:now(),deleted:0};records.unshift(item);addAudit(item.id,'created')}saveLocal()}refresh();closeModal();notice('Registro salvo na memória '+(server?'SQLite':'local'))}catch(e){notice('Não foi possível salvar: '+e.message)}}
+async function saveRecord(data,id){
+  try{
+    if(data.status==='concluida'){
+      const previous=id?records.find(x=>x.id===id):null;
+      data.completed_at=previous?.status==='concluida'?(previous.completed_at||previous.updated_at):now();
+    }else data.completed_at=null;
+    if(server){
+      if(id)await api('/records/'+encodeURIComponent(id),'PATCH',data);
+      else await api('/records','POST',data);
+      await loadServer();
+    }else{
+      window.OrbitaLocalIntegrity.assertReady();
+      const nextRecords=records.slice();
+      let entry;
+      if(id){
+        const position=nextRecords.findIndex(item=>item.id===id);
+        if(position<0)throw Error('Registro ausente');
+        entry={...nextRecords[position],...data,owner:OWNERS[data.type],updated_at:now()};
+        nextRecords[position]=entry;
+      }else{
+        entry={...data,id:uuid(),owner:OWNERS[data.type],created_at:now(),updated_at:now(),deleted:0};
+        nextRecords.unshift(entry);
+      }
+      const action=id?'updated':'created';
+      const nextAudit=[{id:uuid(),record_id:entry.id,action,occurred_at:now()},...audits].slice(0,200);
+      // A memória visível só muda quando a gravação de localStorage tiver sucesso.
+      localStorage.setItem(STORE,JSON.stringify({schema_version:1,records:nextRecords,audit:nextAudit}));
+      records=nextRecords;
+      audits=nextAudit;
+      window.dispatchEvent(new Event('orbita:local-change'));
+    }
+    refresh();closeModal();notice('Registro salvo na memória '+(server?'SQLite':'local'));
+  }catch(e){notice('Não foi possível salvar: '+e.message)}
+}
 async function remove(id){
   if(!records.some(item=>item.id===id))return notice('Registro não encontrado.');
   if(!confirm('Arquivar/excluir este registro da lista?'))return;
@@ -137,38 +171,25 @@ async function remove(id){
       await api('/records/'+encodeURIComponent(id),'DELETE');
       await loadServer();
     }else{
+      window.OrbitaLocalIntegrity.assertReady();
       const key='orbita_cloud_tombstones_v1';
-      const previousStore=localStorage.getItem(STORE);
-      const previousTombstones=localStorage.getItem(key);
-      const tombstones=JSON.parse(previousTombstones||'{}');
+      const tombstones=JSON.parse(localStorage.getItem(key)||'{}');
       if(!tombstones||Array.isArray(tombstones)||typeof tombstones!=='object')
-        throw Error('Histórico de exclusões local inválido. Nenhuma exclusão realizada.');
+        throw Error('Histórico de exclusões inválido; exclusão recusada.');
+      const owner=window.OrbitaAuth.getUser()?.id;
       const nextRecords=records.filter(item=>item.id!==id);
       const nextAudit=[{id:uuid(),record_id:id,action:'soft_deleted',occurred_at:now()},...audits].slice(0,200);
       const nextTombstones={...tombstones,[id]:now()};
-      let storeWritten=false;
-      try{
-        // Persistência em duas etapas: memória do app só muda depois das duas gravações.
-        localStorage.setItem(STORE,JSON.stringify({schema_version:1,records:nextRecords,audit:nextAudit}));
-        storeWritten=true;
-        localStorage.setItem(key,JSON.stringify(nextTombstones));
-      }catch(_){
-        let rollbackOk=true;
-        if(storeWritten){
-          try{
-            if(previousStore===null)localStorage.removeItem(STORE);
-            else localStorage.setItem(STORE,previousStore);
-          }catch(_rollback){rollbackOk=false}
-        }
-        if(!rollbackOk)throw Error('Falha ao reverter a exclusão. Não sincronize: exporte o backup e verifique os dados locais.');
-        throw Error('Armazenamento indisponível. Exclusão cancelada sem alterar os registros.');
-      }
+      window.OrbitaLocalIntegrity.commitDeletion(
+        localStorage,owner,
+        JSON.stringify({schema_version:1,records:nextRecords,audit:nextAudit}),
+        JSON.stringify(nextTombstones)
+      );
       records=nextRecords;
       audits=nextAudit;
       window.dispatchEvent(new Event('orbita:local-change'));
     }
-    refresh();
-    notice('Registro retirado da lista');
+    refresh();notice('Registro retirado da lista');
   }catch(e){notice('Falha ao excluir: '+e.message)}
 }
 function localParts(date=new Date()){const pieces=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/Campo_Grande',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));return {date:pieces.year+'-'+pieces.month+'-'+pieces.day,hour:+pieces.hour,minute:+pieces.minute}}
