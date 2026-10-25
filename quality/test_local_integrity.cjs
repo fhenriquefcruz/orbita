@@ -1,7 +1,7 @@
 'use strict';
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {commitDeletion, recover, journalKey, createTabGuard} = require('../docs/local-integrity.js');
+const {commitDeletion, commitSync, recover, journalKey, createTabGuard} = require('../docs/local-integrity.js');
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const STORE = 'orbita_v12_local';
 const TOMBS = 'orbita_cloud_tombstones_v1';
@@ -144,4 +144,80 @@ test('após escrita válida e atualização de snapshot, a aba pode continuar ed
   guard.refresh();
   guard.assertCurrent();
   assert.equal(guard.isStale(),false);
+});
+
+function expectation(s) {
+  return {store:s.getItem(STORE),tombstones:s.getItem(TOMBS),binding:s.getItem(BINDING)};
+}
+
+test('conciliação salva registros e exclusões juntos e remove journal', () => {
+  const s=storage();
+  commitSync(s,OWNER,AFTER,DELETE,expectation(s));
+  assert.equal(s.getItem(STORE),AFTER);
+  assert.equal(s.getItem(TOMBS),DELETE);
+  assert.equal(s.getItem(journalKey),null);
+});
+
+test('conciliação exige snapshot de registros, exclusões e identidade', () => {
+  const s=storage();
+  assert.throws(()=>commitSync(s,OWNER,AFTER,DELETE),/Snapshot da conciliação obrigatório/);
+  assert.throws(()=>commitSync(s,OWNER,AFTER,DELETE,{store:BEFORE}),/Snapshot anterior incompleto/);
+  assert.equal(s.getItem(journalKey),null);
+  assert.equal(s.getItem(STORE),BEFORE);
+});
+
+test('conciliação rejeita dados alterados em outra aba antes da gravação', () => {
+  const s=storage(), before=expectation(s);
+  s.setItem(TOMBS,DELETE);
+  assert.throws(()=>commitSync(s,OWNER,AFTER,'{}',before),/mudaram durante a conciliação/);
+  assert.equal(s.getItem(journalKey),null);
+  assert.equal(s.getItem(STORE),BEFORE);
+  assert.equal(s.getItem(TOMBS),DELETE);
+});
+
+test('falha na segunda chave durante conciliação restaura o par anterior', () => {
+  const s=storage(), before=expectation(s);
+  let failing=true;
+  s.fail=(key,op)=>key===TOMBS && op==='set' && failing && (failing=false,true);
+  assert.throws(()=>commitSync(s,OWNER,AFTER,DELETE,before),/Conciliação cancelada/);
+  assert.equal(s.getItem(STORE),BEFORE);
+  assert.equal(s.getItem(TOMBS),'{}');
+  assert.equal(s.getItem(journalKey),null);
+});
+
+test('falha irrecuperável na conciliação conserva journal para próxima abertura', () => {
+  const s=storage(), before=expectation(s);
+  let failedTomb=false,failedRollback=false;
+  s.fail=(key,op)=>{
+    if(key===TOMBS && op==='set' && !failedTomb){failedTomb=true;return true;}
+    if(key===STORE && op==='set' && s.getItem(STORE)===AFTER && !failedRollback){
+      failedRollback=true;return true;
+    }
+    return false;
+  };
+  assert.throws(()=>commitSync(s,OWNER,AFTER,DELETE,before),/Não sincronize/);
+  assert.notEqual(s.getItem(journalKey),null);
+  s.fail=null;
+  assert.equal(recover(s),true);
+  assert.equal(s.getItem(STORE),BEFORE);
+  assert.equal(s.getItem(TOMBS),'{}');
+});
+
+test('queda entre gravações após conciliação deixa o estado anterior recuperável', () => {
+  const s=storage();
+  s.setItem(journalKey,JSON.stringify({
+    version:1,owner:OWNER,before:{store:BEFORE,tombstones:'{}'},
+    after:{store:AFTER,tombstones:DELETE}
+  }));
+  s.setItem(STORE,AFTER);
+  assert.equal(recover(s),true);
+  assert.equal(s.getItem(STORE),BEFORE);
+  assert.equal(s.getItem(TOMBS),'{}');
+});
+
+test('não confirmar conciliação quando vinculação mudou', () => {
+  const s=storage(), expected=expectation(s);
+  s.setItem(BINDING,'22222222-2222-4222-8222-222222222222');
+  assert.throws(()=>commitSync(s,OWNER,AFTER,DELETE,expected),/não vinculada/);
+  assert.equal(s.getItem(journalKey),null);
 });

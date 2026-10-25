@@ -243,6 +243,11 @@
       // Captura versão exata: evita sobrescrever alterações feitas em outra aba durante a rede.
       const originalStore = localStorage.getItem(STORE);
       const originalTombstones = localStorage.getItem(TOMBSTONES);
+      const originalBinding = localStorage.getItem(BINDING);
+      const tabGuard = window.OrbitaLocalIntegrity.createTabGuard(localStorage);
+      tabGuard.assertCurrent(); // Journal pendente/aba obsoleta: falhar antes de escrever na nuvem.
+      if (originalBinding !== operationAccount)
+        throw Error('A memória deste dispositivo pertence a outra conta.');
       const snapshot = localData();
       const remote = await loadCloud();
       if (!sameAccount(operationAccount)) throw Error('A conta mudou durante a leitura. Refaça a conciliação.');
@@ -267,8 +272,10 @@
         mode('Operação interrompida. Verifique o arquivo de backup antes de conciliar.'); return;
       }
       if (!sameAccount(operationAccount)) throw Error('A conta mudou. Nenhuma gravação deve continuar.');
+      tabGuard.assertCurrent();
       if (localStorage.getItem(STORE) !== originalStore ||
-          localStorage.getItem(TOMBSTONES) !== originalTombstones) {
+          localStorage.getItem(TOMBSTONES) !== originalTombstones ||
+          localStorage.getItem(BINDING) !== originalBinding) {
         throw Error('Houve outra alteração neste navegador. Refaça a conciliação.');
       }
       for (const item of plan.upserts) {
@@ -320,10 +327,15 @@
           localStorage.getItem(TOMBSTONES) !== originalTombstones) {
         throw Error('Os registros mudaram durante a conciliação. A nuvem pode ter alterações parciais; refaça a comparação.');
       }
-      // Backup foi exigido acima; localStorage não oferece transações entre chaves.
-      localStorage.setItem(STORE, JSON.stringify({...snapshot, records:plan.records}));
-      localStorage.setItem(TOMBSTONES, JSON.stringify(clear));
-      localStorage.setItem(BINDING, operationAccount);
+      // Atomicidade simulada por journal: recupera o estado local anterior após queda
+      // entre as duas gravações. Não reverte transações remotas já confirmadas.
+      tabGuard.assertCurrent();
+      window.OrbitaLocalIntegrity.commitSync(
+        localStorage, operationAccount,
+        JSON.stringify({...snapshot, records:plan.records}),
+        JSON.stringify(clear),
+        {store:originalStore, tombstones:originalTombstones, binding:originalBinding}
+      );
       dirty = false;
       mode('Sincronização confirmada: ' + plan.records.length + ' registros conciliados. Atualizando a tela...');
       setTimeout(() => location.reload(), 500);
