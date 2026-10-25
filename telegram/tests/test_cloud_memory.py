@@ -143,6 +143,45 @@ class TestCloudMemory(unittest.TestCase):
             self.assertFalse(self.mem.complete(5,17))
         self.assertEqual(len(calls), 2)
 
+    def test_finish_update_requires_verified_persistence(self):
+        row={'update_id':135,'status':'processed'}
+        with patch.object(self.mem,'_call',return_value=[row]) as call:
+            self.mem.finish_update(135,'Resposta confirmada')
+            kwargs=call.call_args.kwargs
+            self.assertEqual(call.call_args.args[:2],
+                             ('orbita_telegram_updates','PATCH'))
+            self.assertEqual(kwargs['query']['status'],'eq.received')
+            self.assertEqual(kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(kwargs['prefer'],'return=representation')
+            self.assertEqual(kwargs['value']['response'],'Resposta confirmada')
+
+    def test_finish_update_no_row_changed_fails_without_false_success(self):
+        for result in ([],[{'update_id':999,'status':'processed'}],
+                       [{'update_id':136,'status':'received'}]):
+            with self.subTest(result=result):
+                with patch.object(self.mem,'_call',return_value=result):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.finish_update(136,'Resposta')
+
+    def test_finish_update_refuses_empty_answer(self):
+        with patch.object(self.mem,'_call') as caller:
+            with self.assertRaises(ValueError):
+                self.mem.finish_update(136,'')
+            caller.assert_not_called()
+
+    def test_mark_delivered_requires_exact_row_and_state(self):
+        with patch.object(self.mem,'_call',return_value=[
+                {'update_id':136,'status':'delivered'}]) as caller:
+            self.assertTrue(self.mem.mark_delivered(136))
+            self.assertEqual(caller.call_args.kwargs['query']['status'],'eq.processed')
+            self.assertEqual(caller.call_args.kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(caller.call_args.kwargs['prefer'],'return=representation')
+        for result in ([],[{'update_id':999,'status':'delivered'}],
+                       [{'update_id':136,'status':'processed'}]):
+            with self.subTest(result=result):
+                with patch.object(self.mem,'_call',return_value=result):
+                    self.assertFalse(self.mem.mark_delivered(136))
+
     def test_duplicate_update_can_be_deduplicated(self):
         with patch.object(self.mem,'_call',return_value=[]) as call:
             self.assertFalse(self.mem.claim_update(100))
