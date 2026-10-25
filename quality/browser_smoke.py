@@ -309,6 +309,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
 
         # Falha isolada no segundo armazenamento local: exclusão deve reverter a primeira escrita.
+        page.evaluate("window.confirm = () => true")
         page.evaluate("""() => {
             const original = Storage.prototype.setItem;
             window.__orbitaOriginalSetItem = original;
