@@ -102,10 +102,14 @@ class ReleasePreflightTests(unittest.TestCase):
             line.split("--", 1)[0] for line in sql.splitlines()
         ).upper()
         import re
+        # Privilege checks contain words like 'UPDATE' as string literals,
+        # not executable SQL statements.
+        executable_without_strings = re.sub(r"'(?:''|[^'])*'", "''", executable)
         for word in ("INSERT", "UPDATE", "DELETE", "ALTER", "DROP", "CREATE",
                      "TRUNCATE", "CALL", "DO", "GRANT", "REVOKE"):
             with self.subTest(statement=word):
-                self.assertIsNone(re.search(r"\b" + word + r"\b", executable))
+                self.assertIsNone(
+                    re.search(r"\b" + word + r"\b", executable_without_strings))
         self.assertIn("SELECT JSONB_BUILD_OBJECT(", executable)
 
 
