@@ -63,7 +63,8 @@ Digite `HOMOLOGAR` quando solicitado e, em seguida, informe os dois e-mails e se
 2. Abra o e-mail no mesmo dispositivo/navegador de homologação, entre pelo link permitido e defina nova senha (mínimo 12 caracteres).
 3. Confirme que o link expirado/inválido é recusado e que a aplicação exige novo login após troca.
 4. Entre com a nova senha. Faça logout e confira que `#/records` continua bloqueado.
-5. Verifique em Safari/iPhone por uma **prévia HTTPS isolada** criada a partir da branch do PR, nunca pela URL da produção antiga; confira login, logout, recarga, teclado, toque e tela pequena. Não abrir `localhost` do Mac no iPhone: o iPhone tem seu próprio localhost.
+5. A integração GitHub/Vercel registrou o status **Deployment has completed** para o projeto `orbita-web-preview` no commit mais recente. Abra o [deployment do preview](https://vercel.com/rtm11/orbita-web-preview/AccrR4KFTsSKM1KAbUtA51WuJPbn) com sua conta Vercel e use **Visit** para obter a URL HTTPS real. Confirme no painel que está testando a branch do PR, não `main`. A conexão Vercel desta conversa não autorizou consultar diretamente a URL final (recurso não encontrado), portanto a acessibilidade do preview ainda precisa de validação manual.
+6. Adicione essa URL exata na allowlist de Redirect URLs do Supabase antes de testar a recuperação de senha no preview. Acesse a mesma URL HTTPS pelo Safari/iPhone, confirme login, logout, recarga, teclado, toque, tela pequena e link de recuperação. Não abrir `localhost` do Mac no iPhone: o iPhone tem seu próprio localhost.
 
 ## F. Backup e autorização de gravação
 
