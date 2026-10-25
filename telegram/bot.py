@@ -324,6 +324,11 @@ def call_openai(mem: Memory, owner_id: int, user_text: str, api_key: str, model:
     return "\n".join(parts).strip() or "Não consegui montar a resposta. Tente novamente."
 
 
+def natural_actions_enabled(mem) -> bool:
+    """Cloud habilita somente após migração e homologação; SQLite é local e seguro."""
+    return isinstance(mem, Memory) or os.environ.get("ORBITA_NATURAL_ACTIONS_ENABLED") == "1"
+
+
 def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> str:
     raw = (text or "").strip()
     if not raw:
@@ -367,6 +372,8 @@ def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> 
         return "Comando não reconhecido. Use /ajuda."
     confirmation = parse_confirmation(raw)
     if confirmation:
+        if not natural_actions_enabled(mem):
+            return "As confirmações naturais ainda estão em homologação neste servidor. Nenhum dado foi alterado."
         operation, code = confirmation
         if operation == "cancel":
             return ("Proposta cancelada. Nenhum registro foi criado."
@@ -381,6 +388,9 @@ def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> 
                 "Peça novamente para gerar outra proposta.")
     proposed = classify_action(raw)
     if proposed:
+        if not natural_actions_enabled(mem):
+            return ("Já entendi seu pedido, mas o registro natural ainda não está ativado neste servidor. "
+                    "Enquanto isso, use /tarefa ou /ideia. Nenhum dado foi alterado.")
         code = new_code()
         mem.create_proposal(uid, proposed.kind, proposed.title, proposed.priority, code)
         return preview(proposed.kind, proposed.title, proposed.priority, code)
