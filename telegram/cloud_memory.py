@@ -204,9 +204,28 @@ class CloudMemory:
         return bool(rows)
 
     def finish_update(self, update_id: int, answer: str) -> None:
-        self._call("orbita_telegram_updates", "PATCH", query={
+        """Guarda resposta antes de enviar. Falha fechada se não houver linha alterada."""
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("Resposta vazia não pode ser marcada como processada")
+        rows = self._call("orbita_telegram_updates", "PATCH", query={
             "update_id": "eq." + str(int(update_id)), "user_id": "eq." + self.user_id,
-        }, value={"status": "processed", "response": answer[:4000]}, prefer="return=minimal")
+            "status": "eq.received",
+        }, value={"status": "processed", "response": answer[:4000]},
+            prefer="return=representation")
+        if (not isinstance(rows, list) or len(rows) != 1 or
+                rows[0].get("update_id") != int(update_id) or
+                rows[0].get("status") != "processed"):
+            raise RuntimeError("Resposta não foi persistida na fila Telegram")
+
+    def mark_delivered(self, update_id: int) -> bool:
+        """Marca entrega após sendMessage retornar sucesso (somente schema v3.20)."""
+        rows = self._call("orbita_telegram_updates", "PATCH", query={
+            "update_id": "eq." + str(int(update_id)), "user_id": "eq." + self.user_id,
+            "status": "eq.processed",
+        }, value={"status": "delivered"}, prefer="return=representation")
+        return (isinstance(rows, list) and len(rows) == 1 and
+                rows[0].get("update_id") == int(update_id) and
+                rows[0].get("status") == "delivered")
 
     def get_update(self, update_id: int):
         rows = self._call("orbita_telegram_updates", query={
