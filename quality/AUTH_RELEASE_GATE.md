@@ -8,10 +8,11 @@
 - Frontend de autenticação e chave publicável já preparados no PR 7; testes simulados aprovados.
 
 ## Bloqueadores antes de mesclar o PR 7
+- **Confirmar backup recuperável** (automático ou dump lógico privado com plano de restauração) antes de aplicar permanentemente SQL 002/003. A ferramenta conectada não oferece verificação/execução de backups oficiais. Ver `quality/SECURE_ROLLOUT_3_23.md`.
 - Revisar, aplicar somente após autorização e testar as migrações SQL 002/003 no projeto dedicado, repetindo `infra/supabase/preflight_readonly.sql` e o relatório `quality/SUPABASE_RELEASE_PREFLIGHT_3_21.md`.
 - Verificar login real de proprietário e e-mail confirmado (a consulta automatizada de usuários foi bloqueada pela ferramenta).
 - Testar restauração de sessão, logout, redefinição de senha e links de recuperação reais.
-- Testar RLS entre duas contas autenticadas distintas com dados de teste e limpeza posterior.
+- Ensaio PostgreSQL com `SET LOCAL ROLE` aprovado (Aurora 3.23: proprietário vê seu registro, identidade não proprietária vê zero, `anon` e atualizações privadas protegidos). **Ainda falta testar RLS por HTTP entre duas contas autenticadas distintas com tokens JWT reais**, dados de teste e limpeza posterior.
 - Testar reconciliação com backup, exclusão, recuperação e limpeza do cache PWA.
 - Realizar smoke test em Safari/iPhone, Android/Chrome e desktop.
 - Avaliar o aviso de proteção contra senhas vazadas desabilitada apresentado pelo auditor.
