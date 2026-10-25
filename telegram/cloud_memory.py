@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
@@ -81,23 +81,59 @@ class CloudMemory:
         return sorted(rows, key=lambda r: (r["priority"], -int(r["id"])))[:limit]
 
     def complete(self, owner_id: int, record_id: int) -> bool:
+        """Conclui uma tarefa apenas se a revisão remota continuar inalterada.
+
+        Telegram e painel podem editar a mesma linha. Um PATCH condicional sobre
+        updated_at impede confirmar uma gravação que afete zero registros.
+        """
         rows = self._call("orbita_records", query={
-            "select": "id,payload", "user_id": "eq." + self.user_id,
+            "select": "id,payload,updated_at", "user_id": "eq." + self.user_id,
             "telegram_seq": "eq." + str(int(record_id)), "limit": "1",
         })
-        if not rows:
+        if len(rows) != 1 or not isinstance(rows[0], dict):
             return False
         item = rows[0]
-        p = item["payload"]
-        if p.get("type") != "tarefa" or p.get("status") in ("concluida", "cancelada", "arquivada"):
+        payload = item.get("payload")
+        row_id = item.get("id")
+        revision = item.get("updated_at")
+        if not isinstance(payload, dict) or not isinstance(row_id, str) or not row_id:
             return False
-        p["status"] = "concluida"
-        p["updated_at"] = datetime.now(TZ).isoformat(timespec="seconds")
-        p["completed_at"] = p["updated_at"]
-        self._call("orbita_records", "PATCH", query={
-            "id": "eq." + item["id"], "user_id": "eq." + self.user_id,
-        }, value={"payload": p, "updated_at": p["updated_at"]}, prefer="return=minimal")
-        return True
+        if payload.get("type") != "tarefa" or payload.get("status") in (
+            "concluida", "cancelada", "arquivada"
+        ):
+            return False
+        # Versão ausente/ilegível: não escrever sem a guarda de concorrência.
+        if not isinstance(revision, str) or not revision:
+            return False
+        try:
+            previous = datetime.fromisoformat(revision.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if previous.tzinfo is None or previous.utcoffset() is None:
+            return False
+
+        # Microssegundos evitam reutilizar a mesma revisão em ações rápidas.
+        now = datetime.now(TZ)
+        if now <= previous:
+            now = (previous + timedelta(microseconds=1)).astimezone(TZ)
+        timestamp = now.isoformat(timespec="microseconds")
+        updated = {
+            **payload,
+            "status": "concluida",
+            "updated_at": timestamp,
+            "completed_at": timestamp,
+        }
+        changed = self._call("orbita_records", "PATCH", query={
+            "id": "eq." + row_id,
+            "user_id": "eq." + self.user_id,
+            "updated_at": "eq." + revision,
+        }, value={"payload": updated, "updated_at": timestamp},
+            prefer="return=representation")
+        # Se uma outra origem mudou a revisão, PostgREST responde [].
+        # Não afirmar sucesso sem a linha efetivamente retornada.
+        return (isinstance(changed, list) and len(changed) == 1
+                and isinstance(changed[0], dict)
+                and changed[0].get("id") == row_id)
 
     def save_message(self, owner_id: int, role: str, content: str) -> None:
         if role not in {"user", "assistant"}:

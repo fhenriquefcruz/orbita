@@ -273,7 +273,9 @@ def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> 
     if cmd == "/feito":
         if not rest.isdecimal():
             return "Use /feito 3 (substituindo 3 pelo número da tarefa)."
-        return "✅ Tarefa concluída." if mem.complete(uid, int(rest)) else "Não encontrei essa tarefa em aberto."
+        return ("✅ Tarefa concluída." if mem.complete(uid, int(rest)) else
+                "Não foi possível concluir: a tarefa pode ter sido finalizada ou alterada por outro dispositivo. "
+                "Envie /tarefas para conferir a situação atual e, se necessário, tente novamente.")
     if cmd == "/resumo":
         return summary(mem, uid)
     if cmd == "/limparconversa":

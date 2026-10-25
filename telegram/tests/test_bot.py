@@ -31,6 +31,13 @@ class TestMemory(unittest.TestCase):
         self.assertTrue(self.mem.complete(10, rid))
         self.assertFalse(self.mem.complete(10, rid))
 
+    def test_feito_only_reports_success_for_committed_change(self):
+        rid = self.mem.add(10, "tarefa", "Validar status")
+        self.assertIn("Tarefa concluída.", reply_text("/feito " + str(rid), 10, self.mem, "", ""))
+        failure = reply_text("/feito " + str(rid), 10, self.mem, "", "")
+        self.assertIn("Não foi possível concluir", failure)
+        self.assertIn("/tarefas", failure)
+
     def test_commands_without_api(self):
         answer = reply_text("/tarefa P1 | Revisar orçamento", 10, self.mem, "", "")
         self.assertIn("P1", answer)
