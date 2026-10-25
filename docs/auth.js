@@ -171,6 +171,7 @@
   }
   function unlock(verified) {
     if (!verified?.id) throw Error('Identidade não verificada.');
+    window.OrbitaLocalIntegrity.assertReady();
     bindLocalAccount(verified.id);
     user = {id:verified.id,email:verified.email || ''};
     unlocked = true;
