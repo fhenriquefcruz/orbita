@@ -55,7 +55,9 @@
     return rows;
   }
   function saveBackup(snapshot) {
-    const blob = new Blob([JSON.stringify({...snapshot, exported_at: new Date().toISOString()}, null, 2)], {type:'application/json'});
+    // Preserva também exclusões locais; caso contrário uma restauração poderia ressuscitar itens.
+    const blob = new Blob([JSON.stringify({...snapshot, tombstones: tombstones(),
+      exported_at: new Date().toISOString()}, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = 'orbita-backup-antes-sincronizacao-' + new Date().toISOString().slice(0, 10) + '.json';
@@ -66,6 +68,7 @@
     if (el('orbitaCloudSync')) el('orbitaCloudSync').disabled = busy || !auth.isAuthenticated();
     if (el('orbitaCloudInspect')) el('orbitaCloudInspect').disabled = inspecting || busy || !auth.isAuthenticated();
     if (el('orbitaCloudPreview')) el('orbitaCloudPreview').disabled = previewing || busy || !auth.isAuthenticated();
+    if (el('orbitaCloudImport')) el('orbitaCloudImport').disabled = previewing || busy || !auth.isAuthenticated();
   }
   function dashboardStatus(text) {
     setText('orbitaCloudDashboardStatus', text);
@@ -172,6 +175,61 @@
         'A simulação não pôde ser concluída. Os dados locais não foram alterados.');
     } finally {
       previewing = false;
+      renderButtons();
+    }
+  }
+  async function importCloudOnly() {
+    if (!auth.isAuthenticated() || busy || previewing) return;
+    const owner = auth.getUser().id;
+    busy = true;
+    renderButtons();
+    mode('Preparando importação apenas da nuvem; nenhuma gravação será enviada ao servidor...');
+    try {
+      const originalStore = localStorage.getItem(STORE);
+      const originalTombstones = localStorage.getItem(TOMBSTONES);
+      const originalBinding = localStorage.getItem(BINDING);
+      const snapshot = localData();
+      const pendingDeletions = tombstones();
+      const remote = await loadCloud();
+      if (!sameAccount(owner)) throw Error('A conta mudou durante a consulta');
+      const plan = core.planCloudImport(snapshot.records, remote, pendingDeletions);
+      const s = plan.stats;
+      const detail = s.imported + ' novo(s) para este dispositivo; ' +
+        s.alreadyLocal + ' já existente(s); ' + s.divergent + ' diferente(s), ' +
+        s.locallyDeleted + ' excluído(s) localmente e ' + s.invalid +
+        ' inválido(s), todos preservados sem sobrescrita.';
+      setText('orbitaCloudImportStatus', 'Resultado da comparação: ' + detail);
+      if (!s.imported) {
+        mode('Nenhum registro novo a importar. A nuvem e o navegador não foram alterados.');
+        return;
+      }
+      if (!window.confirm('ORBITA — trazer apenas da nuvem\n\n' + detail +
+        '\n\nEsta ação não escreve nem exclui registros no Supabase. Será exigido um backup antes de alterar este dispositivo. Continuar?')) {
+        mode('Importação cancelada sem alterações.');
+        return;
+      }
+      saveBackup(snapshot);
+      if (!window.confirm('O download do backup local foi iniciado.\n\n' +
+        'CONFIRME que o arquivo foi realmente salvo no dispositivo antes de importar. ' +
+        'Se o download foi bloqueado, escolha Cancelar.\n\nBackup salvo?')) {
+        mode('Importação cancelada. Confira primeiro o arquivo de backup.');
+        return;
+      }
+      if (!sameAccount(owner) ||
+          localStorage.getItem(STORE) !== originalStore ||
+          localStorage.getItem(TOMBSTONES) !== originalTombstones ||
+          localStorage.getItem(BINDING) !== originalBinding) {
+        throw Error('A conta ou os registros locais mudaram. Refaça a importação.');
+      }
+      // Única escrita: armazenamento local do navegador. Não há POST/PATCH/DELETE.
+      localStorage.setItem(STORE, JSON.stringify({...snapshot, records:plan.records}));
+      localStorage.setItem(BINDING, owner);
+      mode(s.imported + ' registro(s) importado(s) somente neste dispositivo. Atualizando o painel...');
+      setTimeout(() => location.reload(), 500);
+    } catch (err) {
+      mode('Importação não concluída: ' + err.message + '. Nenhuma gravação foi enviada à nuvem.');
+    } finally {
+      busy = false;
       renderButtons();
     }
   }
@@ -416,12 +474,15 @@
       '<strong>Antes de sincronizar</strong>' +
       '<p class="small muted">Confira quantos registros serão recebidos, enviados ou excluídos. Esta análise é somente de leitura.</p>' +
       '<p class="small" id="orbitaCloudPreviewStatus" role="status" aria-live="polite">Nenhuma simulação executada.</p></div>' +
+      '<p class="small" id="orbitaCloudImportStatus" role="status" aria-live="polite"></p>' +
       '<div class="actions orbita-cloud-actions">' +
       '<button id="orbitaCloudPreview" type="button" class="btn">Simular sem alterar</button>' +
+      '<button id="orbitaCloudImport" type="button" class="btn">Trazer da nuvem</button>' +
       '<button id="orbitaCloudSync" type="button" class="btn primary">Conciliar registros agora</button></div>';
     parent.append(card);
     el('orbitaCloudSync').addEventListener('click', sync);
     el('orbitaCloudPreview').addEventListener('click', inspectPlan);
+    el('orbitaCloudImport').addEventListener('click', importCloudOnly);
     el('orbitaTelegramRefresh').addEventListener('click', inspectTelegram);
     el('orbitaTelegramFilter').addEventListener('change', renderTelegram);
     el('orbitaTelegramSearch').addEventListener('input', renderTelegram);
