@@ -100,6 +100,16 @@ def mock_rest(route):
                          "priority": "P1", "status": "em_andamento"}}
         ]
         return route.fulfill(status=200, headers=headers, body=json.dumps([] if is_other else items))
+    if query.get("select") == ["id,payload,updated_at"]:
+        assert query["limit"] == ["500"]
+        assert req.headers.get("prefer") != "count=exact"
+        preview = [] if is_other else [
+            {"id": "tg-1", "updated_at": "2026-10-24T20:11:00Z",
+             "payload": {"id": "tg-1", "title": "Teste de conciliação",
+                         "type": "tarefa", "status": "a_fazer",
+                         "updated_at": "2026-10-24T20:11:00Z"}}
+        ]
+        return route.fulfill(status=200, headers=headers, body=json.dumps(preview))
     assert req.headers.get("prefer") == "count=exact"
     if is_other:
         headers["Content-Range"] = "*/0"
@@ -189,6 +199,14 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             "document.querySelector('#orbitaTelegramRefresh')?.disabled === false"
         )
         assert page.locator("#orbitaTelegramList li").count() == 4
+        page.locator("#orbitaCloudPreview").click()
+        page.wait_for_function(
+            "document.querySelector('#orbitaCloudPreviewStatus')?.textContent.includes('1 a receber')"
+        )
+        assert "Ainda não foi gravado nada" in page.locator("#orbitaCloudPreviewStatus").inner_text()
+        assert page.evaluate(
+            "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
+        ) == 0, "Prévia de conciliação não pode salvar dados locais"
         page.locator('.mobile-nav button[data-view="records"]').click()
         assert page.locator("#view-records").is_visible()
         # Validação de scroll horizontal também depois da autenticação.
@@ -257,6 +275,10 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         assert "Nenhum registro do Telegram nesta conta" in other_page.locator("#orbitaTelegramList").inner_text()
         assert other_page.locator("#orbitaTelegramList .orbita-telegram-empty").count() == 1
+        other_page.locator("#orbitaCloudPreview").click()
+        other_page.wait_for_function(
+            "document.querySelector('#orbitaCloudPreviewStatus')?.textContent.includes('0 a receber')"
+        )
         assert other_page.evaluate(
             "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length"
         ) == 0
