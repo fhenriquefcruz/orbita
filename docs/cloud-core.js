@@ -188,6 +188,14 @@
     const audit = backup.audit === undefined ? (current.audit || []) : backup.audit;
     if (!Array.isArray(audit)) throw Error('Trilha local inválida');
     const chat = backup.chat === undefined ? null : backup.chat;
+    if (chat !== null && chat.some(m => !validObject(m) ||
+        typeof m.speaker !== 'string' || !m.speaker.trim() ||
+        m.speaker.length > 80 || typeof m.body !== 'string' ||
+        m.body.length > 6000 ||
+        (m.occurred_at !== undefined &&
+          (typeof m.occurred_at !== 'string' || !stamp(m.occurred_at))))) {
+      throw Error('Mensagens de conversa em formato incompatível com o painel');
+    }
     return {
       records: backup.records, audit: audit.slice(0,200),
       tombstones: merged, chat: chat === null ? null : chat.slice(-100),
