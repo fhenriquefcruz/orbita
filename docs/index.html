@@ -129,7 +129,48 @@ function loadLocal(){try{let d=JSON.parse(localStorage.getItem(STORE)||'{}');rec
 function saveLocal(){try{localStorage.setItem(STORE,JSON.stringify({schema_version:1,records,audit:audits}));window.dispatchEvent(new Event('orbita:local-change'))}catch(e){throw Error('Armazenamento indisponível. Nada foi confirmado; exporte seus dados.')}}
 function addAudit(id,action){audits.unshift({id:uuid(),record_id:id,action,occurred_at:now()});audits=audits.slice(0,200)}
 async function saveRecord(data,id){try{if(data.status==='concluida'){const previous=id?records.find(x=>x.id===id):null;data.completed_at=previous?.status==='concluida'?(previous.completed_at||previous.updated_at):now()}else{data.completed_at=null}if(server){if(id)await api('/records/'+encodeURIComponent(id),'PATCH',data);else await api('/records','POST',data);await loadServer()}else{if(id){const old=records.find(x=>x.id===id);if(!old)throw Error('Registro ausente');Object.assign(old,data,{owner:OWNERS[data.type],updated_at:now()});addAudit(id,'updated')}else{let item={...data,id:uuid(),owner:OWNERS[data.type],created_at:now(),updated_at:now(),deleted:0};records.unshift(item);addAudit(item.id,'created')}saveLocal()}refresh();closeModal();notice('Registro salvo na memória '+(server?'SQLite':'local'))}catch(e){notice('Não foi possível salvar: '+e.message)}}
-async function remove(id){if(!confirm('Arquivar/excluir este registro da lista?'))return;try{if(server){await api('/records/'+encodeURIComponent(id),'DELETE');await loadServer()}else{records=records.filter(x=>x.id!==id);try{const k='orbita_cloud_tombstones_v1',t=JSON.parse(localStorage.getItem(k)||'{}');t[id]=now();localStorage.setItem(k,JSON.stringify(t))}catch(e){throw Error('Não foi possível registrar exclusão para sincronização')}addAudit(id,'soft_deleted');saveLocal()}refresh();notice('Registro retirado da lista')}catch(e){notice('Falha ao excluir: '+e.message)}}
+async function remove(id){
+  if(!records.some(item=>item.id===id))return notice('Registro não encontrado.');
+  if(!confirm('Arquivar/excluir este registro da lista?'))return;
+  try{
+    if(server){
+      await api('/records/'+encodeURIComponent(id),'DELETE');
+      await loadServer();
+    }else{
+      const key='orbita_cloud_tombstones_v1';
+      const previousStore=localStorage.getItem(STORE);
+      const previousTombstones=localStorage.getItem(key);
+      const tombstones=JSON.parse(previousTombstones||'{}');
+      if(!tombstones||Array.isArray(tombstones)||typeof tombstones!=='object')
+        throw Error('Histórico de exclusões local inválido. Nenhuma exclusão realizada.');
+      const nextRecords=records.filter(item=>item.id!==id);
+      const nextAudit=[{id:uuid(),record_id:id,action:'soft_deleted',occurred_at:now()},...audits].slice(0,200);
+      const nextTombstones={...tombstones,[id]:now()};
+      let storeWritten=false;
+      try{
+        // Persistência em duas etapas: memória do app só muda depois das duas gravações.
+        localStorage.setItem(STORE,JSON.stringify({schema_version:1,records:nextRecords,audit:nextAudit}));
+        storeWritten=true;
+        localStorage.setItem(key,JSON.stringify(nextTombstones));
+      }catch(_){
+        let rollbackOk=true;
+        if(storeWritten){
+          try{
+            if(previousStore===null)localStorage.removeItem(STORE);
+            else localStorage.setItem(STORE,previousStore);
+          }catch(_rollback){rollbackOk=false}
+        }
+        if(!rollbackOk)throw Error('Falha ao reverter a exclusão. Não sincronize: exporte o backup e verifique os dados locais.');
+        throw Error('Armazenamento indisponível. Exclusão cancelada sem alterar os registros.');
+      }
+      records=nextRecords;
+      audits=nextAudit;
+      window.dispatchEvent(new Event('orbita:local-change'));
+    }
+    refresh();
+    notice('Registro retirado da lista');
+  }catch(e){notice('Falha ao excluir: '+e.message)}
+}
 function localParts(date=new Date()){const pieces=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'America/Campo_Grande',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));return {date:pieces.year+'-'+pieces.month+'-'+pieces.day,hour:+pieces.hour,minute:+pieces.minute}}
 function localDate(x){if(!x)return '';try{return localParts(new Date(x)).date}catch(e){return ''}}
 function dayOffset(d){const t=new Date(d);t.setUTCDate(t.getUTCDate()+1);return t.toISOString().slice(0,10)}
