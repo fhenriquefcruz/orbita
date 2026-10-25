@@ -308,6 +308,63 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
 
+        # Duas abas com mesmo dono: uma edição salva não pode ser sobrescrita pela aba antiga.
+        second_tab = context.new_page()
+        second_errors = []
+        second_tab.on("pageerror", lambda err: second_errors.append(str(err)))
+        second_tab.route("**/cloud-config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
+                 "',publishableKey:'sb_publishable_public_test'};"))
+        second_tab.route(ORIGIN + "/**", mock_api)
+        second_tab.route(ORIGIN + "/rest/v1/**", mock_rest)
+        second_tab.goto(url + "#/records", wait_until="networkidle")
+        if second_tab.locator("#orbitaAuthRoot").is_visible():
+            second_tab.locator("#orbitaAuthEmail").fill("owner@example.test")
+            second_tab.locator("#orbitaAuthPassword").fill("strong-password-example")
+            second_tab.locator("#orbitaAuthLogin button[type=submit]").click()
+        second_tab.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        second_tab.wait_for_function(
+            "document.querySelector('#recordsList')?.textContent.includes('Restaurada do backup')"
+        )
+        page.locator('button[data-edit="restored-r1"]').click()
+        page.locator("#fNotes").fill("Atualização da aba principal")
+        page.locator('#recordForm button[type="submit"]').click()
+        page.wait_for_function(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].notes === 'Atualização da aba principal'"
+        )
+        second_tab.wait_for_function(
+            "document.querySelector('#toast')?.textContent.includes('Outra aba alterou')"
+        )
+        second_tab.evaluate("window.confirm = () => true")
+        second_tab.locator('button[data-edit="restored-r1"]').click()
+        second_tab.locator("#fNotes").fill("Sobrescrita por aba antiga")
+        second_tab.locator('#recordForm button[type="submit"]').click()
+        second_tab.wait_for_function(
+            "document.querySelector('#toast')?.textContent.includes('Não foi possível salvar')"
+        )
+        assert second_tab.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].notes"
+        ) == "Atualização da aba principal"
+        second_tab.locator("#cancelModal").click()
+        second_tab.locator('button[data-delete="restored-r1"]').click()
+        second_tab.wait_for_function(
+            "document.querySelector('#toast')?.textContent.includes('Falha ao excluir')"
+        )
+        assert second_tab.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records.length"
+        ) == 1
+        second_tab.reload(wait_until="networkidle")
+        second_tab.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        second_tab.wait_for_function(
+            "document.querySelector('#recordsList')?.textContent.includes('Restaurada do backup')"
+        )
+        assert second_tab.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].notes"
+        ) == "Atualização da aba principal"
+        assert not second_errors, second_errors
+        second_tab.close()
+
         # Simula queda abrupta após a primeira gravação da exclusão e antes do tombstone.
         # Uma nova inicialização deve restaurar a lista original e apagar o journal.
         page.evaluate("""() => {

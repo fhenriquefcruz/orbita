@@ -81,7 +81,46 @@
       throw Error('Armazenamento indisponível. Exclusão cancelada sem alterar os registros.');
     }
   }
+  const TRACKED_KEYS = new Set([STORE, TOMBSTONES, BINDING, JOURNAL]);
+  // A snapshot is captured after initial hydration and after this tab's successful writes.
+  // A different tab may not overwrite an older local copy silently.
+  function createTabGuard(storage) {
+    const snapshot = () => ({
+      store: storage.getItem(STORE),
+      tombstones: storage.getItem(TOMBSTONES),
+      binding: storage.getItem(BINDING)
+    });
+    let expected = snapshot();
+    let changedElsewhere = false;
+    function assertCurrent() {
+      if (changedElsewhere) throw Error(
+        'Outra aba modificou a memória ORBITA. Recarregue esta aba antes de salvar.');
+      if (readJournal(storage)) throw Error(
+        'Há uma exclusão interrompida. Recarregue o ORBITA para recuperação.');
+      const current = snapshot();
+      if (Object.keys(expected).some(key => expected[key] !== current[key]))
+        throw Error('Os dados locais mudaram em outra aba. Recarregue antes de alterar.');
+    }
+    function markExternalChange(key) {
+      if (key === null || TRACKED_KEYS.has(key)) changedElsewhere = true;
+    }
+    return Object.freeze({
+      assertCurrent,
+      markExternalChange,
+      refresh() {
+        if (readJournal(storage)) throw Error(
+          'Há uma exclusão interrompida. Recarregue o ORBITA para recuperação.');
+        expected = snapshot();
+        changedElsewhere = false;
+      },
+      isStale() {
+        const current = snapshot();
+        return changedElsewhere || Object.keys(expected).some(key => expected[key] !== current[key]);
+      }
+    });
+  }
   const api = Object.freeze({
+    createTabGuard,
     commitDeletion,
     recover,
     assertReady() {
