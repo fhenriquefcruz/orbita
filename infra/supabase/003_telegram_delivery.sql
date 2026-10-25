@@ -9,7 +9,10 @@ alter table public.orbita_telegram_updates
   drop constraint if exists orbita_telegram_updates_status_check;
 alter table public.orbita_telegram_updates
   add constraint orbita_telegram_updates_status_check
-  check (status in ('received', 'processed', 'delivered'));
+  check (status in ('received', 'replied', 'processed', 'delivered'));
+
+-- 'replied' já existe em uma migração anterior no Supabase dedicado ORBITA.
+-- Preservar esse valor evita invalidar linhas legadas.
 
 -- A coluna status anterior não é substituída e as respostas existentes
 -- continuam sendo válidas; entregas antigas continuam como 'processed',
