@@ -87,7 +87,48 @@
     return {records:Array.from(merged.values()), upserts, deletions,
       clearTombstones, conflicts, stats};
   }
-  const api = Object.freeze({reconcile, stamp});
+  // Importação unidirecional: nunca grava/exclui na nuvem e nunca ressuscita tombstones.
+  function planCloudImport(local, cloudRows, tombstones = {}) {
+    if (!Array.isArray(local) || !Array.isArray(cloudRows) ||
+        !tombstones || typeof tombstones !== 'object' || Array.isArray(tombstones)) {
+      throw Error('Dados inválidos para a importação segura');
+    }
+    const records = [...local], known = new Map();
+    for (const entry of local) {
+      if (entry && typeof entry.id === 'string') known.set(entry.id, entry);
+    }
+    const observed = new Set();
+    const stats = {cloud:cloudRows.length,local:local.length,imported:0,
+      alreadyLocal:0, divergent:0, locallyDeleted:0, invalid:0, duplicates:0};
+    for (const row of cloudRows) {
+      const item = row && row.payload;
+      if (!row || typeof row.id !== 'string' || row.id.length < 1 || row.id.length > 128 ||
+          !item || typeof item !== 'object' || Array.isArray(item) ||
+          item.id !== row.id || typeof item.title !== 'string' ||
+          item.title.trim().length < 1) {
+        stats.invalid++;
+        continue;
+      }
+      if (observed.has(row.id)) {
+        stats.duplicates++;
+        continue;
+      }
+      observed.add(row.id);
+      // Um registro marcado para exclusão local não pode ser recriado por uma leitura.
+      if (Object.prototype.hasOwnProperty.call(tombstones, row.id)) {
+        stats.locallyDeleted++;
+      } else if (known.has(row.id)) {
+        if (samePayload(known.get(row.id), item)) stats.alreadyLocal++;
+        else stats.divergent++;
+      } else {
+        records.push(item);
+        known.set(row.id, item);
+        stats.imported++;
+      }
+    }
+    return {records, stats};
+  }
+  const api = Object.freeze({reconcile, stamp, planCloudImport});
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.OrbitaCloudCore = api;
 })(typeof window === 'undefined' ? null : window);

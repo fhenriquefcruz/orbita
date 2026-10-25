@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {reconcile} = require('../docs/cloud-core.js');
+const {reconcile,planCloudImport} = require('../docs/cloud-core.js');
 const t0 = '2026-10-20T12:00:00-04:00', t1 = '2026-10-24T13:00:00-04:00';
 const a = {id:'orb-a',title:'Local',type:'tarefa',updated_at:t0};
 const b = {id:'orb-a',title:'Nuvem',type:'tarefa',updated_at:t1};
@@ -78,4 +78,47 @@ test('prévia distingue itens para criar, atualizar, importar, substituir e excl
   ],{delete:t1});
   assert.deepEqual(out.stats,{local:2,cloud:3,after:3,fromCloud:1,
     replacedByCloud:0,create:1,update:1,delete:1,conflicts:0});
+});
+
+test('importação somente leitura incorpora somente IDs ausentes e conserva o original', () => {
+  const remoteOnly={id:'tg-1',title:'Tarefa Telegram',type:'tarefa',updated_at:t1};
+  const mine=[a];
+  const remote=[{id:'orb-a',payload:b},{id:'tg-1',payload:remoteOnly}];
+  const out=planCloudImport(mine,remote,{});
+  assert.equal(out.stats.imported,1);
+  assert.equal(out.stats.divergent,1);
+  assert.equal(out.records.length,2);
+  assert.equal(out.records[0],a);
+  assert.equal(out.records[1],remoteOnly);
+  assert.equal(mine.length,1);
+});
+test('exclusão local pendente impede ressurreição por importação da nuvem', () => {
+  const remote={id:'tg-del',title:'Já excluído',type:'tarefa'};
+  const out=planCloudImport([],[{id:'tg-del',payload:remote}],{'tg-del':t1});
+  assert.equal(out.records.length,0);
+  assert.equal(out.stats.locallyDeleted,1);
+});
+test('importação não duplica registros locais e trata payloads equivalentes', () => {
+  const local={id:'same',title:'Mesmo',type:'tarefa'};
+  const remote={type:'tarefa',title:'Mesmo',id:'same'};
+  const out=planCloudImport([local],[{id:'same',payload:remote}],{});
+  assert.equal(out.stats.alreadyLocal,1);
+  assert.equal(out.stats.divergent,0);
+  assert.deepEqual(out.records,[local]);
+});
+test('a importação bloqueia payload sem título ou id incorreto e entradas duplicadas', () => {
+  const valid={id:'tg-1',title:'Novo',type:'ideia'};
+  const out=planCloudImport([],[
+    {id:'bad',payload:{id:'outro',title:'Inválido'}},
+    {id:'empty',payload:{id:'empty',title:' '}},
+    {id:'tg-1',payload:valid},
+    {id:'tg-1',payload:valid}
+  ],{});
+  assert.deepEqual(out.stats,{cloud:4,local:0,imported:1,alreadyLocal:0,
+    divergent:0,locallyDeleted:0,invalid:2,duplicates:1});
+});
+test('importação rejeita tombstones e formatos de entradas inválidos', () => {
+  assert.throws(()=>planCloudImport([],[],[]),/Dados inválidos/);
+  assert.throws(()=>planCloudImport({},[],{}),/Dados inválidos/);
+  assert.throws(()=>planCloudImport([],{},{}),/Dados inválidos/);
 });

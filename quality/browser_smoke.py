@@ -325,6 +325,40 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         ) == "Local mais recente", "Falha remota não pode sobrescrever o backup local"
         assert not conflict_errors, conflict_errors
         conflict.close()
-        print("Browser smoke: Auth, isolamento, prévia sem escrita e concorrência PATCH protegida: OK")
+
+        # Importação somente para o navegador: backup confirmado e nenhuma escrita remota.
+        pull = browser.new_context(viewport={"width": 390, "height": 844}, accept_downloads=True)
+        pull_page = pull.new_page()
+        pull_errors = []
+        remote_methods = []
+        pull_page.on("pageerror", lambda err: pull_errors.append(str(err)))
+        pull_page.on("request", lambda req: remote_methods.append(req.method)
+                     if "/rest/v1/orbita_records" in req.url else None)
+        pull_page.route("**/cloud-config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
+                 "',publishableKey:'sb_publishable_public_test'};"))
+        pull_page.route(ORIGIN + "/**", mock_api)
+        pull_page.route(ORIGIN + "/rest/v1/**", mock_rest)
+        pull_page.goto(url + "#/data", wait_until="networkidle")
+        pull_page.locator("#orbitaAuthEmail").fill("owner@example.test")
+        pull_page.locator("#orbitaAuthPassword").fill("strong-password-example")
+        pull_page.locator("#orbitaAuthLogin button[type=submit]").click()
+        pull_page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        pull_page.evaluate("window.confirm = () => true")
+        pull_page.locator("#orbitaCloudImport").click()
+        pull_page.wait_for_function(
+            "(JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records || []).length === 1"
+        )
+        assert pull_page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].id"
+        ) == "tg-1", "Importação deve trazer registro da nuvem"
+        assert pull_page.evaluate(
+            "Object.keys(JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1') || '{}')).length"
+        ) == 0
+        assert remote_methods and set(remote_methods) == {"GET"}, remote_methods
+        assert not pull_errors, pull_errors
+        pull.close()
+        print("Browser smoke: Auth, isolamento, importação unidirecional e PATCH concorrente: OK")
         browser.close()
     server.shutdown()
