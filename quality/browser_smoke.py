@@ -291,11 +291,14 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             "Object.keys(JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1'))).sort()"
         ) == ["deleted-new", "deleted-old"]
         assert "Mensagem anterior" in page.evaluate("localStorage.getItem('orbita_v13_chat')")
+        # Garante que verificamos a persistência após uma inicialização completa.
+        # O restauro já solicita reload; esta leitura independente testa o boot do app.
+        page.reload(wait_until="networkidle")
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
         page.wait_for_function(
-            "document.querySelector('#statOpen')?.textContent.trim() === '1' && "
-            "document.querySelector('#view-records')?.textContent.includes('Restaurada do backup')"
+            "document.querySelector('#statOpen')?.textContent.trim() === '1'"
         )
+        assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
 
         page.locator("#orbitaSignOut").click()
         page.locator("#orbitaAuthRoot").wait_for(state="visible")
