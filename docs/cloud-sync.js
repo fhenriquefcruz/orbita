@@ -57,6 +57,7 @@
   function saveBackup(snapshot) {
     // Preserva também exclusões locais; caso contrário uma restauração poderia ressuscitar itens.
     const blob = new Blob([JSON.stringify({...snapshot, tombstones: tombstones(),
+      account_id: auth.getUser()?.id,
       exported_at: new Date().toISOString()}, null, 2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

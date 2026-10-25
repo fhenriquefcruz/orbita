@@ -99,7 +99,7 @@
 <section id="view-summaries" class="view"><div class="eyebrow">ROTINA DA COORDENADORA</div><h1 class="title">Dois encontros por dia.</h1><p class="lead">As prévias abaixo são geradas a partir dos dados cadastrados. Não há mensagens agendadas ou enviadas nesta versão.</p><div class="schedule"><div><div class="kicker">ABERTURA DO DIA</div><strong>07:30</strong><small>Agenda, top 3 prioridades e alertas</small></div><div><div class="kicker">BALANÇO VESPERTINO</div><strong>18:00</strong><small>Concluídos, pendências e amanhã</small></div><div><div class="kicker">SILÊNCIO PROTEGIDO</div><strong>20:00</strong><small>Até 07h30, exceto urgência real</small></div></div><div class="two"><div class="card summary"><div class="sectionhead"><h2>☼ Resumo matinal</h2><button class="btn sm" id="copyMorning">Copiar</button></div><div id="summaryMorning" class="small muted"></div></div><div class="card summary"><div class="sectionhead"><h2>☾ Resumo vespertino</h2><button class="btn sm" id="copyEvening">Copiar</button></div><div id="summaryEvening" class="small muted"></div></div></div></section>
 <section id="view-team" class="view"><div class="eyebrow">SETE ESPECIALISTAS • UMA COORDENAÇÃO</div><h1 class="title">Sua equipe, seu ritmo.</h1><p class="lead">Cada personagem tem responsabilidade clara. Vânia orquestra o trabalho e reduz mensagens duplicadas ou fora de contexto.</p><div id="profiles" class="profiles"></div></section>
 <section id="view-rules" class="view"><div class="eyebrow">POLÍTICA DE INTELIGÊNCIA</div><h1 class="title">Proatividade com critério.</h1><p class="lead">Alertas são classificados por prioridade, certeza, situação e necessidade real de ação. Após as 20h, o descanso é a regra.</p><div class="two" style="margin-top:20px"><div class="card"><div class="sectionhead"><h2>Classificação de prioridades</h2></div><div class="rule"><span><span class="chip P0">P0 • Crítica</span></span><span>Interrupção apenas se confirmado e inadiável</span></div><div class="rule"><span><span class="chip P1">P1 • Alta</span></span><span>Antecipação e acompanhamento; à noite exige revisão</span></div><div class="rule"><span><span class="chip P2">P2 • Normal</span></span><span>Resumo ou lembrete no período permitido</span></div><div class="rule"><span><span class="chip P3">P3 • Baixa</span></span><span>Memória e consulta oportuna</span></div></div><div class="card"><div class="sectionhead"><h2>Prévia de notificações</h2><span class="chip">SEM DISPAROS</span></div><div id="alertPreview" class="list"></div></div></div><div class="card" style="margin-top:16px"><div class="sectionhead"><h2>Garantias do sistema</h2></div><div class="two"><div class="small muted">✓ Conclusões só após confirmação<br>✓ Hipóteses não viram fatos<br>✓ Rastreio da origem<br>✓ Proteção dos dados de trabalho<br>✓ Separação entre pessoal e profissional</div><div class="small muted">✓ Nenhum aviso automático neste protótipo<br>✓ Sem acesso ao Telegram ou ao seu calendário<br>✓ Sem autorização para enviar mensagens<br>✓ Informações sensíveis exigem proteção adicional<br>✓ Pessoas reais não são representadas pelos personagens</div></div></div></section>
-<section id="view-data" class="view"><div class="eyebrow">TRANSPARÊNCIA & PORTABILIDADE</div><h1 class="title">A memória pertence a você.</h1><p class="lead">Exportação, trilha de alterações e situação da conexão. A sincronização com o Supabase é manual e depende da configuração da memória central.</p><div class="two" style="margin-top:22px"><div class="card"><h2 style="font-size:16px;margin:0 0 9px">Memória e backup</h2><div id="modeDetail" class="small muted"></div><div class="actions" style="margin-top:17px;flex-wrap:wrap"><button class="btn primary" id="exportBtn">↓ Exportar dados (JSON)</button><button class="btn" id="importBtn">↑ Importar backup</button><input id="importFile" type="file" accept=".json,application/json" hidden></div><div class="message subtle" style="margin-top:16px">A autenticação restringe o painel, mas os registros locais permanecem neste navegador sem criptografia dedicada. Evite dados altamente sensíveis até que o RLS, os backups e a hospedagem tenham sido homologados.</div></div><div class="card"><h2 style="font-size:16px;margin:0 0 9px">Trilha de alterações</h2><div id="auditList" class="log"></div></div></div></section>
+<section id="view-data" class="view"><div class="eyebrow">TRANSPARÊNCIA & PORTABILIDADE</div><h1 class="title">A memória pertence a você.</h1><p class="lead">Exportação, trilha de alterações e situação da conexão. A sincronização com o Supabase é manual e depende da configuração da memória central.</p><div class="two" style="margin-top:22px"><div class="card"><h2 style="font-size:16px;margin:0 0 9px">Memória e backup</h2><div id="modeDetail" class="small muted"></div><div class="actions" style="margin-top:17px;flex-wrap:wrap"><button class="btn primary" id="exportBtn">↓ Exportar dados (JSON)</button><button class="btn" id="importBtn">↑ Restaurar backup</button><input id="importFile" type="file" accept=".json,application/json" hidden></div><div class="message subtle" style="margin-top:16px">A restauração valida a conta, preserva exclusões e exige um backup prévio. Os dados locais permanecem neste navegador sem criptografia dedicada. Evite dados altamente sensíveis até que o RLS, os backups e a hospedagem tenham sido homologados.</div></div><div class="card"><h2 style="font-size:16px;margin:0 0 9px">Trilha de alterações</h2><div id="auditList" class="log"></div></div></div></section>
 <div class="footer-note">ORBITA 3.0 — Painel com acesso autenticado. Registros deste navegador só são sincronizados quando você confirma; automações externas dependem do backend.</div>
 </main>
 </div>
@@ -162,8 +162,87 @@ function classify(s){s=s.toLowerCase();if(/ideia|imaginei|pensei em criar|invent
 function quick(){let txt=$('quickText').value.trim();if(txt.length<2){notice('Escreva uma mensagem para começar');return}nav('chat');$('chatInput').value=txt;$('quickText').value='';sendChat()}
 function isoFromLocal(v){if(!v)return null;const d=new Date(v+':00-04:00');return Number.isNaN(d.getTime())?null:d.toISOString()}
 function download(name,data){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)}
-async function exportData(){try{let data=server?await api('/export'):{schema_version:1,exported_at:now(),config:{timezone:'America/Campo_Grande',morning_summary:'07:30',evening_summary:'18:00',quiet_start:'20:00',quiet_end:'07:30',delivery_enabled:false},records,audit:audits,chat:chatHistory};download('ORBITA_backup_'+localParts().date+'.json',data);notice('Backup exportado')}catch(e){notice('Falha na exportação: '+e.message)}}
-function importData(file){if(!file||server)return;const r=new FileReader();r.onload=()=>{try{let o=JSON.parse(r.result);if(o.schema_version!==1||!Array.isArray(o.records)||o.records.length>5000)throw Error('Formato de backup incompatível');if(!confirm('Substituir toda a memória local atual por este backup?'))return;const valid=o.records.every(x=>x&&typeof x.id==='string'&&typeof x.title==='string'&&x.title.length<=240&&TYPES.includes(x.type)&&['P0','P1','P2','P3'].includes(x.priority)&&STATUSES.includes(x.status));if(!valid)throw Error('Registros inválidos');records=o.records;chatHistory=Array.isArray(o.chat)?o.chat.slice(-100):[];saveChatOffline();renderChat();audits=Array.isArray(o.audit)?o.audit.slice(0,200):[];saveLocal();refresh();notice('Backup importado na memória local')}catch(e){notice('Importação recusada: '+e.message)}};r.readAsText(file)}
+async function exportData(){
+  try{
+    const owner=window.OrbitaAuth.getUser()?.id;
+    if(!owner||!window.OrbitaAuth.isAuthenticated())throw Error('Faça login antes de exportar');
+    const backup=server?await api('/export'):{
+      schema_version:1,account_id:owner,exported_at:now(),
+      config:{timezone:'America/Campo_Grande',morning_summary:'07:30',
+        evening_summary:'18:00',quiet_start:'20:00',quiet_end:'07:30',
+        delivery_enabled:false},
+      records,audit:audits,chat:chatHistory,
+      tombstones:JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1')||'{}')
+    };
+    download('ORBITA_backup_'+localParts().date+'.json',backup);
+    notice('Backup completo solicitado. Confirme o arquivo salvo no aparelho.');
+  }catch(e){notice('Falha na exportação: '+e.message)}
+}
+function importData(file){
+  if(!file||server)return;
+  if(file.size>8*1024*1024){notice('Backup acima de 8 MB; importação recusada.');return}
+  const reader=new FileReader();
+  reader.onerror=()=>notice('Falha ao ler o backup selecionado.');
+  reader.onload=()=>{
+    let before=null, changed=false;
+    const keyT='orbita_cloud_tombstones_v1';
+    const keyB='orbita_cloud_binding_v1';
+    try{
+      const auth=window.OrbitaAuth;
+      const owner=auth.getUser()?.id;
+      if(!owner||!auth.isAuthenticated())throw Error('É necessário entrar na sua conta');
+      const backup=JSON.parse(reader.result);
+      const rawT=localStorage.getItem(keyT);
+      const tombstones=JSON.parse(rawT||'{}');
+      const plan=window.OrbitaCloudCore.planBackupRestore(backup,{
+        records,audit:audits,tombstones
+      },owner);
+      const stat=plan.summary;
+      const warning=(stat.unbound?' ATENÇÃO: este backup não informa a conta original.':'')+
+        (stat.legacy?' O arquivo não traz exclusões; as exclusões existentes serão preservadas.':'');
+      if(!confirm('Restaurar backup ORBITA?\n\nSerão substituídos '+stat.previous+
+        ' registro(s) locais por '+stat.restored+
+        ' do arquivo. Serão preservados '+stat.exclusions+
+        ' marcador(es) de exclusão.\n'+
+        (stat.chatPreserved?'O histórico de conversa atual será mantido.':'O histórico de conversa também será restaurado.')+
+        '\nNenhum dado será enviado ao Supabase.'+warning+'\n\nProsseguir?'))return;
+      before={store:localStorage.getItem(STORE),tombstones:rawT,
+        chat:localStorage.getItem(CHAT_STORE),binding:localStorage.getItem(keyB)};
+      const rescue={schema_version:1,account_id:owner,exported_at:now(),
+        records,audit:audits,chat:chatHistory,tombstones};
+      download('ORBITA_antes_restauracao_'+localParts().date+'.json',rescue);
+      if(!confirm('O backup de segurança atual foi preparado para download.\n\n'+
+        'Confirme que o arquivo está realmente SALVO antes de substituir os dados locais.\n'+
+        'Se o download falhou, escolha Cancelar.\n\nBackup salvo?'))return;
+      if(auth.getUser()?.id!==owner||!auth.isAuthenticated()||
+        localStorage.getItem(STORE)!==before.store||
+        localStorage.getItem(keyT)!==before.tombstones||
+        localStorage.getItem(CHAT_STORE)!==before.chat||
+        localStorage.getItem(keyB)!==before.binding){
+        throw Error('A sessão ou os dados mudaram; a restauração foi cancelada');
+      }
+      changed=true;
+      localStorage.setItem(STORE,JSON.stringify({
+        schema_version:1,records:plan.records,audit:plan.audit
+      }));
+      localStorage.setItem(keyT,JSON.stringify(plan.tombstones));
+      if(plan.chat!==null)localStorage.setItem(CHAT_STORE,JSON.stringify(plan.chat));
+      // O painel recarrega os três estados somente após todas as gravações concluírem.
+      location.reload();
+    }catch(e){
+      if(changed&&before){
+        const restore=(key,val)=>{if(val===null)localStorage.removeItem(key);else localStorage.setItem(key,val)};
+        try{
+          restore(STORE,before.store);
+          restore(keyT,before.tombstones);
+          restore(CHAT_STORE,before.chat);
+        }catch(_){ /* Backup de segurança foi exigido antes de qualquer escrita. */ }
+      }
+      notice('Restauração recusada: '+(e.message||'backup inválido'));
+    }
+  };
+  reader.readAsText(file);
+}
 function copySummary(which){const txt=(which==='morning'?'ORBITA — Vânia | Resumo 07h30':'ORBITA — Vânia | Resumo 18h')+'\n'+buildSummary(which).map(x=>'• '+x).join('\n');if(navigator.clipboard?.writeText){navigator.clipboard.writeText(txt).then(()=>notice('Resumo copiado')).catch(()=>notice('Não foi possível copiar'))}else{notice('Cópia indisponível neste navegador')}}
 
 function normal(s){return String(s).toLocaleLowerCase('pt-BR').normalize('NFD').replace(/[\u0300-\u036f]/g,'')}

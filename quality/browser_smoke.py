@@ -242,6 +242,71 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         assert page.locator("#statOpen").inner_text() == "1"
         assert page.locator("#view-records").is_visible(), "Deep link not restored"
 
+        # Restauração local completa: dono verificado, download prévio, tombstones preservados.
+        page.evaluate("window.confirm = () => true")
+        page.evaluate(
+            "localStorage.setItem('orbita_cloud_tombstones_v1', JSON.stringify("
+            "{'deleted-old':'2026-10-24T12:00:00Z'}))"
+        )
+        page.evaluate(
+            "localStorage.setItem('orbita_v13_chat', JSON.stringify("
+            "[{speaker:'Você',body:'Mensagem anterior',occurred_at:'2026-10-24T15:00:00Z'}]))"
+        )
+        prior_id = page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].id"
+        )
+        wrong_owner = {
+            "schema_version": 1, "account_id": OTHER,
+            "records": [{"id": "restored-r1", "title": "Do arquivo", "type": "tarefa",
+                         "priority": "P1", "status": "a_fazer"}],
+            "tombstones": {}
+        }
+        page.locator("#importFile").set_input_files({
+            "name": "backup_outra_conta.json", "mimeType": "application/json",
+            "buffer": json.dumps(wrong_owner).encode("utf-8")
+        })
+        page.wait_for_function(
+            "document.querySelector('#toast')?.textContent.includes('outra conta')"
+        )
+        assert page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].id"
+        ) == prior_id
+        valid_backup = {
+            "schema_version": 1, "account_id": OWNER,
+            "records": [{"id": "restored-r1", "title": "Restaurada do backup",
+                         "type": "tarefa", "priority": "P1", "status": "a_fazer"}],
+            "audit": [],
+            "tombstones": {"deleted-new": "2026-10-24T13:00:00Z"}
+        }
+        with page.expect_download() as before_restore:
+            page.locator("#importFile").set_input_files({
+                "name": "backup_completo.json", "mimeType": "application/json",
+                "buffer": json.dumps(valid_backup).encode("utf-8")
+            })
+        assert before_restore.value.suggested_filename.startswith("ORBITA_antes_restauracao_")
+        page.wait_for_function(
+            "JSON.parse(localStorage.getItem('orbita_v12_local') || '{}').records?.[0]?.id === 'restored-r1'"
+        )
+        assert page.evaluate(
+            "Object.keys(JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1'))).sort()"
+        ) == ["deleted-new", "deleted-old"]
+        assert "Mensagem anterior" in page.evaluate("localStorage.getItem('orbita_v13_chat')")
+        # Garante que verificamos a persistência após uma inicialização completa.
+        # O restauro já solicita reload; esta leitura independente testa o boot do app.
+        page.reload(wait_until="networkidle")
+        page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        page.wait_for_timeout(800)
+        print("RESTORE DEBUG", page.evaluate("""() => ({
+            stat:document.querySelector('#statOpen')?.textContent,
+            items:document.querySelector('#recordsList')?.textContent.slice(0,200),
+            stored:JSON.parse(localStorage.getItem('orbita_v12_local')||'{}').records?.map(x=>({id:x.id,status:x.status,title:x.title})),
+            route:location.hash, auth:document.documentElement.getAttribute('data-orbita-auth')
+        })"""), "ERR", errors[-5:], flush=True)
+        page.wait_for_function(
+            "document.querySelector('#statOpen')?.textContent.trim() === '1'", timeout=5000
+        )
+        assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
+
         page.locator("#orbitaSignOut").click()
         page.locator("#orbitaAuthRoot").wait_for(state="visible")
         assert page.locator(".layout").is_hidden(), "Protected shell exposed on logout"

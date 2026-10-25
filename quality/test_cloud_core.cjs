@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {reconcile,planCloudImport} = require('../docs/cloud-core.js');
+const {reconcile,planCloudImport,planBackupRestore} = require('../docs/cloud-core.js');
 const t0 = '2026-10-20T12:00:00-04:00', t1 = '2026-10-24T13:00:00-04:00';
 const a = {id:'orb-a',title:'Local',type:'tarefa',updated_at:t0};
 const b = {id:'orb-a',title:'Nuvem',type:'tarefa',updated_at:t1};
@@ -121,4 +121,62 @@ test('importação rejeita tombstones e formatos de entradas inválidos', () => 
   assert.throws(()=>planCloudImport([],[],[]),/Dados inválidos/);
   assert.throws(()=>planCloudImport({},[],{}),/Dados inválidos/);
   assert.throws(()=>planCloudImport([],{},{}),/Dados inválidos/);
+});
+
+const owner='11111111-1111-4111-8111-111111111111';
+const backupRecord={id:'tg-x',title:'Voltar do backup',type:'tarefa',status:'a_fazer',priority:'P1'};
+const current={records:[],audit:[],tombstones:{'old-delete':t0}};
+test('backup completo restaura marcadores e preserva conversas ausentes',()=>{
+  const backup={schema_version:1,account_id:owner,records:[backupRecord],audit:[],
+    tombstones:{'new-delete':t1}};
+  const plan=planBackupRestore(backup,current,owner);
+  assert.equal(plan.records.length,1);
+  assert.equal(plan.summary.exclusions,2);
+  assert.equal(plan.tombstones['old-delete'],t0);
+  assert.equal(plan.tombstones['new-delete'],t1);
+  assert.equal(plan.chat,null);
+  assert.equal(plan.summary.chatPreserved,true);
+  assert.equal(plan.summary.unbound,false);
+});
+test('backup de outra conta é bloqueado',()=>{
+  assert.throws(()=>planBackupRestore({schema_version:1,account_id:'outro',
+    records:[backupRecord],tombstones:{}},current,owner),/outra conta/);
+});
+test('backup legado sem tombstones preserva exclusões locais',()=>{
+  const plan=planBackupRestore({schema_version:1,records:[backupRecord]},current,owner);
+  assert.equal(plan.summary.legacy,true);
+  assert.equal(plan.summary.unbound,true);
+  assert.equal(plan.tombstones['old-delete'],t0);
+});
+test('não ressuscita registro que já estava excluído localmente',()=>{
+  const deleted={...backupRecord,id:'old-delete'};
+  assert.throws(()=>planBackupRestore({schema_version:1,records:[deleted]},
+    current,owner),/marcados como excluídos/);
+});
+test('backup inválido: ids duplicados, campo obrigatório e exclusão inválida',()=>{
+  assert.throws(()=>planBackupRestore({schema_version:1,
+    records:[backupRecord,backupRecord]},current,owner),/duplicado/);
+  assert.throws(()=>planBackupRestore({schema_version:1,
+    records:[{...backupRecord,priority:'P9'}]},current,owner),/inválido/);
+  assert.throws(()=>planBackupRestore({schema_version:1,records:[],
+    tombstones:{x:'erro'}},current,owner),/datas inválidas/);
+});
+test('backup de Telegram aceita título até 1000 e estado em_andamento',()=>{
+  const p={...backupRecord,title:'A'.repeat(1000),status:'em_andamento'};
+  const plan=planBackupRestore({schema_version:1,records:[p]},current,owner);
+  assert.equal(plan.records[0].title.length,1000);
+});
+test('backup conserva histórico de conversa quando presente e recusa formatos errados',()=>{
+  const p=planBackupRestore({schema_version:1,records:[],
+    chat:[{speaker:'Você',body:'Teste',occurred_at:t1}]},current,owner);
+  assert.equal(p.chat.length,1);
+  assert.equal(p.summary.chatPreserved,false);
+  assert.throws(()=>planBackupRestore({schema_version:1,records:[],
+    chat:{}},current,owner),/Histórico/);
+});
+
+test('conversa com role/content não é aceita como backup local sem transformação',()=>{
+  assert.throws(()=>planBackupRestore({
+    schema_version:1,records:[],chat:[{role:'user',content:'Mensagem sem speaker'}]
+  },current,owner),/formato incompatível/);
 });
