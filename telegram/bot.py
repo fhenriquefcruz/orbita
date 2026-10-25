@@ -479,6 +479,8 @@ def main() -> int:
                     continue
                 uid = int(sender["id"])
                 chat_id = chat["id"]
+                if callback and chat_id != owner_id:
+                    continue
                 # Não executar callback desconhecido; somente códigos e ações permitidos.
                 message = (callback_as_confirmation(callback.get("data")) if callback
                            else msg.get("text", ""))
