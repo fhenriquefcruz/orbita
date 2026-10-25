@@ -168,9 +168,15 @@ test('backup de Telegram aceita título até 1000 e estado em_andamento',()=>{
 });
 test('backup conserva histórico de conversa quando presente e recusa formatos errados',()=>{
   const p=planBackupRestore({schema_version:1,records:[],
-    chat:[{role:'user',content:'Teste'}]},current,owner);
+    chat:[{speaker:'Você',body:'Teste',occurred_at:t1}]},current,owner);
   assert.equal(p.chat.length,1);
   assert.equal(p.summary.chatPreserved,false);
   assert.throws(()=>planBackupRestore({schema_version:1,records:[],
     chat:{}},current,owner),/Histórico/);
+});
+
+test('conversa com role/content não é aceita como backup local sem transformação',()=>{
+  assert.throws(()=>planBackupRestore({
+    schema_version:1,records:[],chat:[{role:'user',content:'Mensagem sem speaker'}]
+  },current,owner),/formato incompatível/);
 });
