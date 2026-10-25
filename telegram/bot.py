@@ -286,7 +286,7 @@ def assistant_instructions(mem: Memory, owner_id: int) -> str:
         "Pedidos naturais explícitos de anotar tarefas/ideias geram propostas em separado; "
         "a execução só acontece após o usuário confirmar o código da proposta. "
         "Não declare tarefas gravadas sem confirmação efetiva no banco. "
-        "Outras operações exigem comandos explícitos: /tarefa, /ideia e /feito. "
+        "Outras operações exigem EXCLUSIVAMENTE comandos explícitos: /tarefa, /ideia e /feito. "
         "Para pedidos fora do escopo, explique brevemente que ainda não os executa. "
         "Não há integração com calendário nem notificações automáticas. "
         "Se solicitado sobre agenda, diga que ela não está sincronizada. "
