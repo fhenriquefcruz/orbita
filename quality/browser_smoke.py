@@ -250,7 +250,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         page.evaluate(
             "localStorage.setItem('orbita_v13_chat', JSON.stringify("
-            "[{role:'user',content:'Mensagem anterior'}]))"
+            "[{speaker:'Você',body:'Mensagem anterior',occurred_at:'2026-10-24T15:00:00Z'}]))"
         )
         prior_id = page.evaluate(
             "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].id"
