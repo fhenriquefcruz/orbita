@@ -2,11 +2,13 @@
 
 ## Confirmado em 24/10/2026
 - Projeto `orbita` ativo na organização ORBITA, região São Paulo.
-- Três migrações executadas e RLS habilitada nas três tabelas da memória.
+- As **três tabelas base** da memória estão presentes e têm RLS habilitado; a contagem de tabelas não significa que as migrações opcionais recentes foram aplicadas.
+- Auditoria SQL de leitura de 24/10/2026 confirmou ausência de `orbita_action_proposals` e da RPC de confirmação (SQL 002 pendente) e ausência de `delivered` no constraint do webhook (SQL 003 pendente), preservando o estado legado `replied`.
 - Site URL e URL de redirecionamento confirmadas visualmente: https://fhenriquefcruz.github.io/orbita/.
 - Frontend de autenticação e chave publicável já preparados no PR 7; testes simulados aprovados.
 
 ## Bloqueadores antes de mesclar o PR 7
+- Revisar, aplicar somente após autorização e testar as migrações SQL 002/003 no projeto dedicado, repetindo `infra/supabase/preflight_readonly.sql` e o relatório `quality/SUPABASE_RELEASE_PREFLIGHT_3_21.md`.
 - Verificar login real de proprietário e e-mail confirmado (a consulta automatizada de usuários foi bloqueada pela ferramenta).
 - Testar restauração de sessão, logout, redefinição de senha e links de recuperação reais.
 - Testar RLS entre duas contas autenticadas distintas com dados de teste e limpeza posterior.
@@ -18,6 +20,7 @@
 - O GitHub Pages publica HTML e JavaScript; a privacidade dos dados persistidos depende de RLS.
 - Não adicionar credenciais privilegiadas ao código ou a arquivos públicos.
 - Dados locais do navegador não são criptografados, mesmo depois do login.
-- O webhook Telegram permanece inativo até implantação das credenciais privadas e autorização do titular.
+- O webhook Telegram e os fluxos naturais em nuvem não são considerados ativos/homologados até implantação das credenciais privadas e testes reais do titular.
+- As flags `ORBITA_NATURAL_ACTIONS_ENABLED` e `ORBITA_WEBHOOK_DELIVERY_V2_ENABLED` permanecem desligadas por padrão; um preflight de esquema aprovado NÃO autoriza publicação.
 
 **Resultado:** infraestrutura preparada; publicação do login ainda não homologada.

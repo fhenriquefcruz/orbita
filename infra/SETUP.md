@@ -1,6 +1,6 @@
 # ORBITA 3.0 — Infraestrutura: guia de ativação segura
 
-> **Estado:** código pronto para configurar; integração real depende de Supabase exclusivo, conta Auth e segredos configurados em hospedagem privada. Não utilizar bancos de projetos alheios ao ORBITA.
+> **Estado verificado em 24/10/2026:** projeto Supabase exclusivo `orbita` já existe, com as três tabelas base e RLS ativos. Login Auth, integração com Telegram e deploy continuam sem homologação E2E. Migrações opcionais 002/003 estão versionadas, mas NÃO aplicadas. Nunca usar bancos de outros projetos.
 
 ## Arquitetura
 
@@ -12,8 +12,8 @@
 
 ## Passos para conectar sem publicar segredos
 
-1. **Criar um projeto Supabase exclusivo ORBITA** na sua organização escolhida, de preferência região `sa-east-1`. Outros projetos não devem ser reaproveitados. Confirmar possíveis custos antes de criar.
-2. Executar `infra/supabase/001_core.sql` no SQL Editor desse projeto, sem reaproveitar bancos de outros aplicativos. Executar os advisors de segurança e verificar o RLS com duas contas independentes (acesso negado aos registros de outro usuário).
+1. **Projeto dedicado:** o Supabase exclusivo `orbita` já foi confirmado na organização ORBITA (região `sa-east-1`). Não recriar ou reutilizar bancos alheios; conferir sempre a identidade do projeto antes de operar.
+2. **Base:** `infra/supabase/001_core.sql` está refletido nas três tabelas e no RLS existentes. Antes de qualquer novo rollout, executar SOMENTE a consulta `infra/supabase/preflight_readonly.sql` e conferir `quality/SUPABASE_RELEASE_PREFLIGHT_3_21.md`. As migrações **002 (propostas)** e **003 (entrega Telegram)** não foram aplicadas e não devem ser executadas sem revisão, backup e homologação. Verificar isolamento RLS com duas contas reais.
 3. Em **Authentication → Users**, criar/convidar somente os usuários autorizados. Em **Authentication → URL Configuration**, definir **Site URL** e **Redirect URLs** como `https://fhenriquefcruz.github.io/orbita/` (com barra final). Validar entrega de e-mails de recuperação (SMTP próprio em produção). Em **Authentication → Providers → Email**, evitar inscrição pública se o ORBITA for restrito ao proprietário. A interface não oferece auto-cadastro.
 4. Copiar **somente a URL pública e a chave `sb_publishable_...`** para `docs/cloud-config.js`. Esta chave é publicável e fica limitada pelo RLS. Nunca colocar `sb_secret_...` ou token de Telegram no navegador.
 5. Publicar o frontend pelo GitHub Pages. O endereço `https://fhenriquefcruz.github.io/orbita/` deve exibir o **login antes de qualquer tela do painel**. Após entrar, abrir `#/data` ou **Dados e histórico → Memória central**. Primeiro revisar e exportar um backup; depois escolher **Conciliar registros agora**. Conflitos usam `updated_at` mais recente; exclusões recebem tombstones. Não apagar o backup original antes de confirmar ambos os lados.
@@ -53,4 +53,4 @@ A execução acima não equivale a teste E2E com Supabase/Telegram reais. Valida
 - Com duas contas independentes e RLS, garantir que leituras, gravações e exclusões cruzadas são negadas no Supabase, independentemente da proteção visual.
 - Executar `python quality/browser_smoke.py` com Playwright e Chromium instalados. O mock só testa interface/fluxos; **não** substitui autenticação e isolamento RLS reais.
 
-**Ativação bloqueada** até a nova organização/projeto Supabase ORBITA estar acessível nesta conexão. Não usar a organização anterior `Fhenrique` por engano.
+**Ativação bloqueada:** o projeto Supabase exclusivo está acessível, mas não passou pelos testes Auth/RLS HTTP reais, SQL 002/003, recuperação de senha, Safari/iPhone e Telegram em produção. Ativação das flags privadas `ORBITA_NATURAL_ACTIONS_ENABLED` e `ORBITA_WEBHOOK_DELIVERY_V2_ENABLED` exige homologação individual. A branch `main` permanece preservada.
