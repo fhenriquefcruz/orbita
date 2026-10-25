@@ -599,6 +599,60 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         assert remote_methods and set(remote_methods) == {"GET"}, remote_methods
         assert not pull_errors, pull_errors
         pull.close()
+        # Conciliacao de nuvem para navegador sem upserts remotos.
+        # Erro no tombstone apos primeira escrita nao pode deixar dados parciais.
+        sync_context = browser.new_context(viewport={"width":390,"height":844}, accept_downloads=True)
+        sync_page = sync_context.new_page()
+        sync_errors = []
+        sync_page.on("pageerror", lambda err: sync_errors.append(str(err)))
+        sync_page.route("**/cloud-config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
+                 "',publishableKey:'sb_publishable_public_test'};"))
+        sync_page.route(ORIGIN + "/**", mock_api)
+        sync_page.route(ORIGIN + "/rest/v1/**", mock_rest)
+        sync_page.goto(url + "#/data", wait_until="networkidle")
+        sync_page.locator("#orbitaAuthEmail").fill("owner@example.test")
+        sync_page.locator("#orbitaAuthPassword").fill("strong-password-example")
+        sync_page.locator("#orbitaAuthLogin button[type=submit]").click()
+        sync_page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        sync_page.evaluate("window.confirm = () => true")
+        original_store = sync_page.evaluate("localStorage.getItem('orbita_v12_local')")
+        original_tombs = sync_page.evaluate("localStorage.getItem('orbita_cloud_tombstones_v1')")
+        sync_page.evaluate("""() => {
+            const original=Storage.prototype.setItem;
+            window.__orbitaSetItemBeforeSyncTest=original;
+            let once=true;
+            Storage.prototype.setItem=function(key,value){
+                if(key==='orbita_cloud_tombstones_v1' && once){
+                    once=false;
+                    throw new DOMException('Falha simulada','QuotaExceededError');
+                }
+                return original.call(this,key,value);
+            };
+        }""")
+        sync_page.locator("#orbitaCloudSync").click()
+        sync_page.wait_for_function(
+            "document.querySelector('#orbitaCloudStatus')?.textContent.includes('Sincronização não concluída')"
+        )
+        assert "Conciliação cancelada" in sync_page.locator("#orbitaCloudStatus").inner_text()
+        assert sync_page.evaluate("localStorage.getItem('orbita_v12_local')") == original_store
+        assert sync_page.evaluate("localStorage.getItem('orbita_cloud_tombstones_v1')") == original_tombs
+        assert sync_page.evaluate("localStorage.getItem('orbita_local_txn_v1')") is None
+        sync_page.evaluate(
+            "() => {Storage.prototype.setItem=window.__orbitaSetItemBeforeSyncTest;}"
+        )
+        sync_page.locator("#orbitaCloudSync").click()
+        sync_page.wait_for_function(
+            "(JSON.parse(localStorage.getItem('orbita_v12_local')||'{}').records||[]).length===1"
+        )
+        assert sync_page.evaluate("localStorage.getItem('orbita_local_txn_v1')") is None
+        assert sync_page.evaluate(
+            "Object.keys(JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1')||'{}')).length"
+        ) == 0
+        assert not sync_errors, sync_errors
+        sync_context.close()
+
         print("Browser smoke: Auth, isolamento, importação unidirecional e PATCH concorrente: OK")
         browser.close()
     server.shutdown()
