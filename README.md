@@ -54,6 +54,16 @@ O login passa a proteger o acesso a toda interface. Sem projeto Supabase exclusi
 
 O bot e a aplicação web **não compartilham dados automaticamente neste instante**. Depois da configuração privada, o Telegram pode salvar no Supabase e o painel pode conciliar registros por ação explícita. **Não há atualização em tempo real** nesta versão.
 
+## Homologação real do Auth
+
+Consulte o [roteiro operacional](quality/HOMOLOGACAO_REAL_PASSO_A_PASSO.md).
+O script `python3 quality/run_auth_homologation.py` solicita duas contas distintas
+em um Terminal privado e valida o isolamento RLS pela API HTTP do Supabase,
+sem copiar tokens manualmente nem modificar dados do negócio. Há seis testes
+unitários em `telegram/tests/test_run_auth_homologation.py`.
+**Não representa liberação de produção**: exige duas contas reais, backup,
+validação de senha/recuperação e testes em dispositivos.
+
 ## Próximas etapas
 
 1. Ativar e testar bot no Telegram com token rotacionado e `ORBITA_OWNER_ID` restrito.
