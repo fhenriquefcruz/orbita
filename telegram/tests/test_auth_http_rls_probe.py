@@ -61,7 +61,7 @@ class HttpRLSProbeTests(unittest.TestCase):
         self.assertTrue(summary["cross_account_chat_hidden"])
         self.assertTrue(summary["private_telegram_denied"])
         self.assertTrue(summary["invalid_jwt_denied"])
-        self.assertEqual(len(transport.calls), 10)
+        self.assertEqual(len(transport.calls), 11)
         self.assertTrue(all(path.startswith("/") for path, _ in transport.calls))
 
     def test_chat_without_fixture_is_pending_not_false_success(self):
@@ -91,6 +91,11 @@ class HttpRLSProbeTests(unittest.TestCase):
         transport = MockTransport()
         transport.other_chats = [{"user_id": OWNER}]
         with self.assertRaisesRegex(GateError, "chat do titular"):
+            evaluate_http(transport, OWNER_TOKEN, OTHER_TOKEN)
+
+    def test_owner_chat_cannot_silently_include_foreign_account(self):
+        transport = MockTransport(owner_chats=[{"user_id": OTHER}])
+        with self.assertRaisesRegex(GateError, "outro titular"):
             evaluate_http(transport, OWNER_TOKEN, OTHER_TOKEN)
 
     def test_owner_without_record_does_not_fake_proof(self):
