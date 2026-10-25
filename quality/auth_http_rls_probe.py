@@ -137,6 +137,8 @@ def evaluate_http(transport: HttpReader, owner_jwt: str, other_jwt: str) -> dict
 
     chats = urlencode({"select": "user_id", "user_id": "eq." + owner_id, "limit": "10"})
     owner_chats = _rows(transport, "/rest/v1/orbita_chat_messages?" + chats, owner_jwt)
+    if any(row.get("user_id") != owner_id for row in owner_chats):
+        raise GateError("Resposta de chat contém dados de outro titular.")
     cross_chats = _rows(transport, "/rest/v1/orbita_chat_messages?" + chats, other_jwt)
     if cross_chats:
         raise GateError("Isolamento RLS FALHOU: outra conta enxerga chat do titular.")
