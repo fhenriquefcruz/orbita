@@ -308,6 +308,37 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
 
+        # Simula queda abrupta após a primeira gravação da exclusão e antes do tombstone.
+        # Uma nova inicialização deve restaurar a lista original e apagar o journal.
+        page.evaluate("""() => {
+            const store='orbita_v12_local', tombs='orbita_cloud_tombstones_v1';
+            const priorStore=localStorage.getItem(store);
+            const priorTombs=localStorage.getItem(tombs);
+            const account=localStorage.getItem('orbita_cloud_binding_v1');
+            const nextData=JSON.parse(priorStore);
+            nextData.records=nextData.records.filter(item=>item.id!=='restored-r1');
+            const afterStore=JSON.stringify(nextData);
+            const nextTombs={...JSON.parse(priorTombs||'{}'),'restored-r1':'2026-10-24T21:00:00Z'};
+            localStorage.setItem('orbita_local_txn_v1', JSON.stringify({
+                version:1,owner:account,
+                before:{store:priorStore,tombstones:priorTombs},
+                after:{store:afterStore,tombstones:JSON.stringify(nextTombs)}
+            }));
+            localStorage.setItem(store,afterStore);
+        }""")
+        page.reload(wait_until="networkidle")
+        page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        page.wait_for_function(
+            "document.querySelector('#statOpen')?.textContent.trim() === '1'"
+        )
+        assert page.evaluate("localStorage.getItem('orbita_local_txn_v1')") is None
+        assert page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].id"
+        ) == "restored-r1"
+        assert "restored-r1" not in page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1'))"
+        )
+
         # Falha isolada no segundo armazenamento local: exclusão deve reverter a primeira escrita.
         page.evaluate("window.confirm = () => true")
         page.evaluate("""() => {
