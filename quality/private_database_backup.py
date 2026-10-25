@@ -127,7 +127,8 @@ def create_backup(env: dict[str, str], root: Path, directory: Path,
         found, missing = has_expected_tables(result.stdout)
         if not found:
             raise BackupError("Backup incompleto: ausentes as tabelas esperadas.")
-        digest = hashlib.file_digest(open(partial, "rb"), "sha256").hexdigest()
+        with partial.open("rb") as reader:
+            digest = hashlib.file_digest(reader, "sha256").hexdigest()
         archive_size = partial.stat().st_size
         os.replace(partial, archive)
         report = {
