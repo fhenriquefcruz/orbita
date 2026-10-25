@@ -308,6 +308,42 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
 
+        # Falha isolada no segundo armazenamento local: exclusão deve reverter a primeira escrita.
+        page.evaluate("window.confirm = () => true")
+        page.evaluate("""() => {
+            const original = Storage.prototype.setItem;
+            window.__orbitaOriginalSetItem = original;
+            let pending = true;
+            Storage.prototype.setItem = function(key, value) {
+                if (key === 'orbita_cloud_tombstones_v1' && pending) {
+                    pending = false;
+                    throw new DOMException('Falha simulada de disco', 'QuotaExceededError');
+                }
+                return original.call(this, key, value);
+            };
+        }""")
+        page.locator('button[data-delete="restored-r1"]').click()
+        page.wait_for_function(
+            "document.querySelector('#toast')?.textContent.includes('Exclusão cancelada')"
+        )
+        assert page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].id"
+        ) == "restored-r1", "Falha no tombstone não pode remover a tarefa"
+        assert "restored-r1" not in page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1'))"
+        )
+        assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
+        page.evaluate("() => { Storage.prototype.setItem = window.__orbitaOriginalSetItem; }")
+        page.locator('button[data-delete="restored-r1"]').click()
+        page.wait_for_function(
+            "(JSON.parse(localStorage.getItem('orbita_v12_local')||'{}').records||[]).length === 0"
+        )
+        assert "restored-r1" in page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1'))"
+        ), "Exclusão bem-sucedida deve gerar marcador local"
+        assert page.locator("#statOpen").inner_text() == "0"
+        assert not errors, errors
+
         page.locator("#orbitaSignOut").click()
         page.locator("#orbitaAuthRoot").wait_for(state="visible")
         assert page.locator(".layout").is_hidden(), "Protected shell exposed on logout"
@@ -322,6 +358,43 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         assert page.locator(".layout").is_hidden()
         assert not errors, errors
         context.close()
+
+        # Marcadores de exclusão sem vínculo exigem consentimento antes de escolher titular.
+        legacy_context = browser.new_context(viewport={"width": 390, "height": 844})
+        legacy_page = legacy_context.new_page()
+        legacy_errors = []
+        legacy_page.on("pageerror", lambda err: legacy_errors.append(str(err)))
+        legacy_page.add_init_script("""(() => {
+            if (!localStorage.getItem('orbita_cloud_tombstones_v1')) {
+                localStorage.setItem('orbita_cloud_tombstones_v1',
+                    JSON.stringify({'prior-owner-deletion':'2026-10-24T12:00:00Z'}));
+            }
+            window.confirm = () => false;
+        })();""")
+        legacy_page.route("**/cloud-config.js", lambda route: route.fulfill(
+            status=200, content_type="application/javascript",
+            body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
+                 "',publishableKey:'sb_publishable_public_test'};"))
+        legacy_page.route(ORIGIN + "/**", mock_api)
+        legacy_page.route(ORIGIN + "/rest/v1/**", mock_rest)
+        legacy_page.goto(url, wait_until="networkidle")
+        legacy_page.locator("#orbitaAuthEmail").fill("owner@example.test")
+        legacy_page.locator("#orbitaAuthPassword").fill("strong-password-example")
+        legacy_page.locator("#orbitaAuthLogin button[type=submit]").click()
+        legacy_page.wait_for_function(
+            "document.querySelector('#orbitaAuthStatus')?.textContent.includes('Vinculação')"
+        )
+        assert legacy_page.locator(".layout").is_hidden()
+        assert legacy_page.evaluate("localStorage.getItem('orbita_cloud_binding_v1')") is None
+        legacy_page.evaluate("window.confirm = () => true")
+        legacy_page.locator("#orbitaAuthLogin button[type=submit]").click()
+        legacy_page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        assert legacy_page.evaluate("localStorage.getItem('orbita_cloud_binding_v1')") == OWNER
+        assert legacy_page.evaluate(
+            "JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1'))['prior-owner-deletion']"
+        ) == "2026-10-24T12:00:00Z"
+        assert not legacy_errors, legacy_errors
+        legacy_context.close()
 
         # Outra sessão independente: Auth /user precisa devolver a identidade própria.
         # Mock API simula que registros do proprietário NÃO existem nesta conta.
