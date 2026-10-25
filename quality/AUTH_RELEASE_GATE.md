@@ -18,9 +18,9 @@
 - Frontend de autenticação e chave publicável já preparados no PR 7; testes simulados aprovados.
 
 ## Bloqueadores antes de mesclar o PR 7
-- **Confirmar backup recuperável** (automático ou dump lógico privado com plano de restauração) antes de aplicar permanentemente SQL 002/003. A ferramenta conectada não oferece verificação/execução de backups oficiais. Ver `quality/SECURE_ROLLOUT_3_23.md`.
+- **Supabase ORBITA está no plano Free (25/10/2026).** O projeto não tem histórico diário gerenciado de backups dos planos pagos. Ferramentas locais de exportação/verificação criadas na Aurora 3.25, mas backup ainda NÃO gerado nem restaurado. Exigir backup privado, integridade e restauração independente antes de SQL 002/003. Ver `quality/AUTH_BACKUP_ACTIVATION_GATE_3_25.md`.
 - Revisar, aplicar somente após autorização e testar as migrações SQL 002/003 no projeto dedicado, repetindo `infra/supabase/preflight_readonly.sql` e o relatório `quality/SUPABASE_RELEASE_PREFLIGHT_3_21.md`.
-- **Estado Auth real:** consulta administrativa de 24/10/2026 encontrou uma única conta Auth no projeto. Ainda falta uma segunda conta autorizada, JWTs de duas sessões e prova HTTP. Testador GET-only criado em `quality/auth_http_rls_probe.py` e manual `quality/AUTH_HTTP_RLS_GATE_3_24.md`; nenhum JWT real foi utilizado nesta entrega.
+- **Estado Auth real em 25/10/2026:** uma única conta Auth com e-mail confirmado, segunda conta autorizada ainda pendente. `quality/auth_dual_login_runner.py` pode autenticar as duas contas **localmente sem copiar JWTs**, logo após cadastro legítimo no Dashboard. Nenhum JWT/senha real foi utilizado nesta etapa; falta a prova HTTP com duas identidades distintas.
 - Testar restauração de sessão, logout, redefinição de senha e links de recuperação reais.
 - Ensaio PostgreSQL com `SET LOCAL ROLE` aprovado (Aurora 3.23). Suite Aurora 3.24 verifica a lógica de HTTP/JWT com transportes mockados; **a prova real depende de duas contas, sessões JWT legítimas e teste de escrita/exclusão com fixture controlado**. O chat real possui zero mensagens e não permite comprovar vazamento de conteúdo por leitura cruzada até haver um fixture autorizado.
 - Testar reconciliação com backup, exclusão, recuperação e limpeza do cache PWA.
