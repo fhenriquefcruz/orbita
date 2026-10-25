@@ -128,7 +128,79 @@
     }
     return {records, stats};
   }
-  const api = Object.freeze({reconcile, stamp, planCloudImport});
+  // Full local backup restore: validate the entire payload before allowing any write.
+  function planBackupRestore(backup, current, ownerId) {
+    const validObject = x => x && typeof x === 'object' && !Array.isArray(x);
+    const validId = id => typeof id === 'string' && id.length > 0 && id.length <= 128;
+    if (!validObject(backup) || backup.schema_version !== 1 ||
+        !Array.isArray(backup.records) || backup.records.length > 5000) {
+      throw Error('Formato de backup incompatível ou tamanho excedido');
+    }
+    if (!validObject(current) || !Array.isArray(current.records) ||
+        !validObject(current.tombstones) || typeof ownerId !== 'string' || !ownerId) {
+      throw Error('Estado local ou autenticação inválidos');
+    }
+    if (backup.account_id !== undefined &&
+        (!validId(backup.account_id) || backup.account_id !== ownerId)) {
+      throw Error('Este backup pertence a outra conta ORBITA');
+    }
+    const types = new Set(['compromisso','tarefa','projeto','pendência','ideia',
+      'aprendizado','decisão','informação','oportunidade']);
+    const states = new Set(['a_fazer','programada','em_execucao','em_andamento',
+      'aguardando','bloqueada','concluida','cancelada','arquivada']);
+    const seen = new Set();
+    for (const item of backup.records) {
+      if (!validObject(item) || !validId(item.id) || seen.has(item.id) ||
+          typeof item.title !== 'string' || !item.title.trim() ||
+          item.title.length > 1000 || !types.has(item.type) ||
+          !states.has(item.status) ||
+          !['P0','P1','P2','P3'].includes(item.priority)) {
+        throw Error('O backup contém registro duplicado, inválido ou incompatível');
+      }
+      seen.add(item.id);
+    }
+    const hasTombstones = Object.prototype.hasOwnProperty.call(backup,'tombstones');
+    const source = hasTombstones ? backup.tombstones : {};
+    if (!validObject(source) || Object.keys(source).length > 10000 ||
+        Object.keys(current.tombstones).length > 10000) {
+      throw Error('Lista de exclusões inválida ou acima do limite');
+    }
+    const merged = Object.create(null);
+    for (const collection of [current.tombstones, source]) {
+      for (const [id, date] of Object.entries(collection)) {
+        if (!validId(id) || typeof date !== 'string' || !stamp(date)) {
+          throw Error('O backup ou navegador contém exclusões com datas inválidas');
+        }
+        if (!merged[id] || stamp(date) > stamp(merged[id])) merged[id] = date;
+      }
+    }
+    if (backup.records.some(item => Object.prototype.hasOwnProperty.call(merged,item.id))) {
+      throw Error('Há registros no backup marcados como excluídos: revise antes de restaurar');
+    }
+    if (backup.audit !== undefined &&
+        (!Array.isArray(backup.audit) || backup.audit.length > 5000)) {
+      throw Error('Trilha de auditoria do backup inválida');
+    }
+    if (backup.chat !== undefined &&
+        (!Array.isArray(backup.chat) || backup.chat.length > 5000)) {
+      throw Error('Histórico de conversa do backup inválido');
+    }
+    const audit = backup.audit === undefined ? (current.audit || []) : backup.audit;
+    if (!Array.isArray(audit)) throw Error('Trilha local inválida');
+    const chat = backup.chat === undefined ? null : backup.chat;
+    return {
+      records: backup.records, audit: audit.slice(0,200),
+      tombstones: merged, chat: chat === null ? null : chat.slice(-100),
+      summary: {
+        previous: current.records.length, restored: backup.records.length,
+        exclusions: Object.keys(merged).length,
+        unbound: backup.account_id === undefined,
+        legacy: !hasTombstones,
+        chatPreserved: chat === null
+      }
+    };
+  }
+  const api = Object.freeze({reconcile, stamp, planCloudImport, planBackupRestore});
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (root) root.OrbitaCloudCore = api;
 })(typeof window === 'undefined' ? null : window);
