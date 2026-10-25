@@ -40,6 +40,7 @@ resposta foi persistida.
 | received | não | Não reexecutar; pendente |
 | processed com response | não | Reenviar apenas resposta persistida |
 | processed com response vazia | não | Pendente para auditoria |
+| replied (legado) | não | Preservado; não reexecutar ações antigas |
 | delivered | não | Não enviar novamente |
 | enviado mas mark_delivered falhou | não | Reenviar após retry; possível duplicação de mensagem |
 
