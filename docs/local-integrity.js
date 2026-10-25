@@ -1,4 +1,4 @@
-/* ORBITA 3.12 — Journal de transações locais: recupera exclusões interrompidas.
+/* ORBITA 3.15 — Journal de transações locais: exclusões e conciliações recuperáveis.
  * Chaves existentes permanecem legíveis; não armazena tokens, senhas ou chat.
  */
 (function (root) {
@@ -51,7 +51,9 @@
     storage.removeItem(JOURNAL);
     return true;
   }
-  function commitDeletion(storage, owner, nextStore, nextTombstones) {
+  // Both cloud sync and deletion modify two independent localStorage keys.
+  // A write-ahead journal makes interrupted writes recoverable on next startup.
+  function commitPair(storage, owner, nextStore, nextTombstones, expected, action) {
     if (startupError) throw Error(startupError);
     if (readJournal(storage)) throw Error('Recupere a operação interrompida antes de continuar');
     if (typeof owner !== 'string' || storage.getItem(BINDING) !== owner)
@@ -62,24 +64,42 @@
     const before = {
       store: storage.getItem(STORE), tombstones: storage.getItem(TOMBSTONES)
     };
-    const after = {store: nextStore, tombstones: nextTombstones};
     if (!validRaw(before.store) || !validRaw(before.tombstones))
       throw Error('Dados locais acima do limite seguro');
+    if (expected) {
+      if (!['store', 'tombstones', 'binding'].every(key =>
+          Object.prototype.hasOwnProperty.call(expected, key)))
+        throw Error('Snapshot anterior incompleto; operação bloqueada');
+      if (before.store !== expected.store ||
+          before.tombstones !== expected.tombstones ||
+          storage.getItem(BINDING) !== expected.binding)
+        throw Error('Os dados locais mudaram durante a conciliação; recarregue antes de alterar');
+    }
+    const after = {store: nextStore, tombstones: nextTombstones};
     const entry = {version:1, owner, before, after};
-    // Write-ahead: a recuperação encontra o estado anterior se houver queda entre operações.
     storage.setItem(JOURNAL, JSON.stringify(entry));
     try {
       storage.setItem(STORE, nextStore);
       storage.setItem(TOMBSTONES, nextTombstones);
       storage.removeItem(JOURNAL);
-    } catch (error) {
+    } catch (_) {
       try {
         recover(storage);
       } catch (_) {
-        throw Error('Falha ao concluir ou reverter uma exclusão. Não sincronize; preserve o backup.');
+        throw Error('Falha ao concluir ou reverter ' + action +
+          '. Não sincronize; preserve o backup.');
       }
-      throw Error('Armazenamento indisponível. Exclusão cancelada sem alterar os registros.');
+      throw Error('Armazenamento indisponível. ' + action +
+        ' cancelada sem alterar os registros locais.');
     }
+  }
+  function commitDeletion(storage, owner, nextStore, nextTombstones) {
+    return commitPair(storage, owner, nextStore, nextTombstones, null, 'Exclusão');
+  }
+  function commitSync(storage, owner, nextStore, nextTombstones, expected) {
+    if (!expected || typeof expected !== 'object')
+      throw Error('Snapshot da conciliação obrigatório');
+    return commitPair(storage, owner, nextStore, nextTombstones, expected, 'Conciliação');
   }
   const TRACKED_KEYS = new Set([STORE, TOMBSTONES, BINDING, JOURNAL]);
   // A snapshot is captured after initial hydration and after this tab's successful writes.
@@ -122,6 +142,7 @@
   const api = Object.freeze({
     createTabGuard,
     commitDeletion,
+    commitSync,
     recover,
     assertReady() {
       if (startupError) throw Error(startupError);
