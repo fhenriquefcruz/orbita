@@ -1,7 +1,7 @@
 'use strict';
 const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {commitDeletion, recover, journalKey} = require('../docs/local-integrity.js');
+const {commitDeletion, recover, journalKey, createTabGuard} = require('../docs/local-integrity.js');
 const OWNER = '11111111-1111-4111-8111-111111111111';
 const STORE = 'orbita_v12_local';
 const TOMBS = 'orbita_cloud_tombstones_v1';
@@ -97,4 +97,51 @@ test('journal danificado não é apagado automaticamente',()=>{
   const s=storage();s.setItem(journalKey,'{invalid');
   assert.throws(()=>recover(s),/danificado/);
   assert.equal(s.getItem(journalKey),'{invalid');
+});
+
+test('duas abas: gravar a partir de snapshot antigo é bloqueado sem sobrescrever',()=>{
+  const s=storage();
+  const first=createTabGuard(s),second=createTabGuard(s);
+  first.assertCurrent();
+  second.assertCurrent();
+  s.setItem(STORE,AFTER);
+  first.refresh();
+  assert.throws(()=>second.assertCurrent(),/mudaram em outra aba/);
+  assert.equal(s.getItem(STORE),AFTER);
+});
+test('notificação entre abas bloqueia escrita, inclusive se o valor voltou ao anterior',()=>{
+  const s=storage(), guard=createTabGuard(s);
+  guard.markExternalChange(STORE);
+  assert.throws(()=>guard.assertCurrent(),/Outra aba/);
+  guard.refresh();
+  guard.assertCurrent();
+});
+test('chaves não pertencentes à memória não interrompem o cadastro',()=>{
+  const s=storage(), guard=createTabGuard(s);
+  guard.markExternalChange('orbita_theme');
+  guard.assertCurrent();
+});
+test('journal pendente impede escrita por outra aba',()=>{
+  const s=storage(), guard=createTabGuard(s);
+  s.setItem(journalKey,JSON.stringify({
+    version:1,owner:OWNER,
+    before:{store:BEFORE,tombstones:'{}'},
+    after:{store:AFTER,tombstones:DELETE}
+  }));
+  assert.throws(()=>guard.assertCurrent(),/exclusão interrompida/);
+  assert.throws(()=>guard.refresh(),/exclusão interrompida/);
+});
+test('alteração de titular invalida o snapshot existente',()=>{
+  const s=storage(), guard=createTabGuard(s);
+  s.setItem(BINDING,'22222222-2222-4222-8222-222222222222');
+  assert.throws(()=>guard.assertCurrent(),/mudaram em outra aba/);
+  assert.equal(s.getItem(STORE),BEFORE);
+});
+test('após escrita válida e atualização de snapshot, a aba pode continuar editando',()=>{
+  const s=storage(), guard=createTabGuard(s);
+  guard.assertCurrent();
+  s.setItem(STORE,AFTER);
+  guard.refresh();
+  guard.assertCurrent();
+  assert.equal(guard.isStale(),false);
 });
