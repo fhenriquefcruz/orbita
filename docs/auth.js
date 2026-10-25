@@ -11,7 +11,7 @@
     /^(sb_publishable_[\w-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(key);
   const STORAGE = 'orbita_auth_session_v1';
   const BINDING = 'orbita_cloud_binding_v1';
-  const LEGACY = ['orbita_v12_local', 'orbita_v13_chat'];
+  const LEGACY = ['orbita_v12_local', 'orbita_v13_chat', 'orbita_cloud_tombstones_v1'];
   const readyCallbacks = [];
   let session = null;
   let user = null;
@@ -155,13 +155,15 @@
           const raw = localStorage.getItem(k);
           if (!raw) return false;
           const parsed = JSON.parse(raw);
-          return Array.isArray(parsed) ? parsed.length > 0 :
-            (Array.isArray(parsed.records) && parsed.records.length > 0) ||
+          if (Array.isArray(parsed)) return parsed.length > 0;
+          if (!parsed || typeof parsed !== 'object') return true;
+          if (k === 'orbita_cloud_tombstones_v1') return Object.keys(parsed).length > 0;
+          return (Array.isArray(parsed.records) && parsed.records.length > 0) ||
             (Array.isArray(parsed.audit) && parsed.audit.length > 0);
         } catch (_) { return true; }
       });
       if (hasLegacy && !window.confirm(
-        'Este navegador possui registros locais anteriores à autenticação.\n\n' +
+        'Este navegador possui dados locais ou exclusões anteriores à autenticação.\n\n' +
         'Eles serão vinculados permanentemente a esta conta ORBITA. Confirme somente se ela for sua.'
       )) throw Error('Vinculação dos registros locais não autorizada.');
       localStorage.setItem(BINDING, id);
