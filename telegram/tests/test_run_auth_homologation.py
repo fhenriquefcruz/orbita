@@ -73,7 +73,7 @@ class HomologationCLI(unittest.TestCase):
         with patch("builtins.input", side_effect=["HOMOLOGAR", "same@example.invalid",
                                                    "same@example.invalid"]), \
              patch("getpass.getpass", return_value="secret"), \
-             patch.object(flow.CONFIG, "read_text",
+             patch("pathlib.Path.read_text",
                           return_value="url:'https://tbqfymedgdsdrgkqmuni.supabase.co',"
                                        "publishableKey:'sb_publishable_test'"), \
              patch.object(flow, "sign_in") as login:
