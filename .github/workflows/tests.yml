@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: '22'
       - name: Testes de conciliação e integridade da memória local
-        run: node --test quality/test_cloud_core.cjs quality/test_local_integrity.cjs
+        run: node --test quality/test_cloud_core.cjs quality/test_local_integrity.cjs quality/test_service_worker.cjs
       - name: Validação da sintaxe JavaScript
         run: |
           node --check docs/local-integrity.js
