@@ -364,13 +364,13 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         legacy_page = legacy_context.new_page()
         legacy_errors = []
         legacy_page.on("pageerror", lambda err: legacy_errors.append(str(err)))
-        legacy_page.add_init_script("""() => {
+        legacy_page.add_init_script("""(() => {
             if (!localStorage.getItem('orbita_cloud_tombstones_v1')) {
                 localStorage.setItem('orbita_cloud_tombstones_v1',
                     JSON.stringify({'prior-owner-deletion':'2026-10-24T12:00:00Z'}));
             }
             window.confirm = () => false;
-        }""")
+        })();""")
         legacy_page.route("**/cloud-config.js", lambda route: route.fulfill(
             status=200, content_type="application/javascript",
             body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
