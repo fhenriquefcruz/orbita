@@ -1,5 +1,15 @@
 # ORBITA 3.0 — Homologação do Supabase Auth
 
+## Revisão operacional de 25/10/2026 — Supabase conectado
+
+- Organização **ORBITA** e projeto exclusivo `orbita` (`tbqfymedgdsdrgkqmuni`) confirmados como **ACTIVE_HEALTHY** na região `sa-east-1`.
+- SQL read-only constatou **1 conta Auth confirmada**, três tabelas com RLS, políticas restritas por `auth.uid()` e sem `GRANT` direto para `anon`.
+- Reexecutei `infra/supabase/rls_role_rehearsal.sql`: seis booleans de segurança retornaram `true` e a transação encerrou em `ROLLBACK`. Isto valida papéis/claims PostgreSQL simulados, **não** duas sessões HTTP reais.
+- O projeto já tinha três migrações. A migração adicional `20261025103735` criou apenas o índice não destrutivo `orbita_telegram_updates_user_id_idx`; leitura do catálogo confirmou sua existência, e o advisor deixou de sinalizar a chave estrangeira sem índice.
+- `docs/cloud-config.js` no PR 7 contém a URL correta e uma chave **publicável habilitada**, confirmada contra o projeto Supabase, sem chave privilegiada.
+- Advisor de segurança: **Leaked Password Protection Disabled** continua em `WARN`. Requer configuração de Auth e recurso disponível conforme plano; tabela `orbita_telegram_updates` sem política é **intencional**, porque usuários/anônimos não têm `GRANT` de consulta.
+- Ainda **não** há segunda conta real de teste, chat de teste para isolamento via HTTP, validação de recuperação de senha, backup confirmado para SQL 002/003 ou aprovação de publicação. Sem novos flags habilitados. A PR 7 continua em rascunho e o site `main` fica inalterado.
+
 ## Confirmado em 24/10/2026
 - Projeto `orbita` ativo na organização ORBITA, região São Paulo.
 - As **três tabelas base** da memória estão presentes e têm RLS habilitado; a contagem de tabelas não significa que as migrações opcionais recentes foram aplicadas.
