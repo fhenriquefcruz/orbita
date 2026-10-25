@@ -24,7 +24,7 @@ _IDEA = re.compile(
     _PREFIX + r"(?:"
     r"(?:tive|tenho)\s+uma\s+ideia\s*(?:[:—-]\s*|de\s+)"
     r"|(?:anote|anota|registre|registra|guarde|guarda|salve|salva)"
-    r"\s+(?:a\s+)?(?:seguinte\s+)?ideia\s*(?:[:—-]\s*|de\s+|que\s+)"
+    r"\s+(?:(?:a|uma)\s+)?(?:seguinte\s+)?ideia\s*(?:[:—-]\s*|de\s+|que\s+)"
     r")(.+)$", re.IGNORECASE | re.DOTALL
 )
 _TASK = re.compile(
