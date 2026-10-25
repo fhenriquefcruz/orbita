@@ -114,7 +114,8 @@ def mock_rest(route):
         preview = [] if is_other else [
             {"id": "tg-1", "updated_at": "2026-10-24T20:11:00Z",
              "payload": {"id": "tg-1", "title": "Teste de conciliação",
-                         "type": "tarefa", "status": "a_fazer",
+                         "type": "tarefa", "status": "em_andamento", "priority": "P1",
+                         "source": "Telegram ORBITA", "owner": "Zezé",
                          "updated_at": "2026-10-24T20:11:00Z"}}
         ]
         return route.fulfill(status=200, headers=headers, body=json.dumps(preview))
@@ -421,6 +422,19 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         assert pull_page.evaluate(
             "Object.keys(JSON.parse(localStorage.getItem('orbita_cloud_tombstones_v1') || '{}')).length"
         ) == 0
+        # Uma tarefa em andamento no Telegram deve ser atividade ativa no Aurora.
+        pull_page.reload(wait_until="networkidle")
+        pull_page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        pull_page.wait_for_function(
+            "document.querySelector('#statOpen')?.textContent.trim() === '1'"
+        )
+        assert pull_page.locator("#statPriority").inner_text() == "1"
+        assert "Em andamento" in pull_page.locator("#recordsList").inner_text()
+        pull_page.locator('.mobile-nav button[data-view="records"]').click()
+        pull_page.locator("#filterStatus").select_option("em_andamento")
+        assert "Teste de conciliação" in pull_page.locator("#recordsList").inner_text()
+        pull_page.locator('button[data-edit="tg-1"]').click()
+        assert pull_page.locator("#fStatus").input_value() == "em_andamento"
         assert remote_methods and set(remote_methods) == {"GET"}, remote_methods
         assert not pull_errors, pull_errors
         pull.close()
