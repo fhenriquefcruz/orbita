@@ -13,7 +13,8 @@ import re
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from action_proposals import classify_action, parse_confirmation, new_code, preview, check_proposal
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -42,10 +43,12 @@ HELP = (
     "/ideia Nova proposta de aplicativo — guarda uma ideia\n"
     "/ideias — lista ideias\n"
     "/feito 3 — conclui a tarefa 3\n"
+    "Peça: Vânia, anote que preciso enviar o relatório — prepara confirmação\n"
+    "Responda confirmar CÓDIGO ou cancelar CÓDIGO antes de registrar\n"
     "/resumo — prévia manual do resumo\n"
     "/limparconversa — apaga o histórico local do chat com IA\n\n"
     "Mensagens livres são respondidas pela IA se uma chave OpenAI estiver configurada. "
-    "A conversa livre é somente consultiva: alterações exigem comandos explícitos. "
+    "Pedidos naturais de tarefas e ideias geram propostas, nunca gravações imediatas. "
     "Notificações e resumos automáticos estão DESATIVADOS."
 )
 
@@ -103,6 +106,21 @@ class Memory:
               content TEXT NOT NULL,
               created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS action_proposals (
+              code TEXT PRIMARY KEY,
+              owner_id INTEGER NOT NULL,
+              kind TEXT NOT NULL CHECK (kind IN ('tarefa','ideia')),
+              title TEXT NOT NULL,
+              priority TEXT NOT NULL CHECK (priority IN ('P0','P1','P2','P3')),
+              status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','confirmed','cancelled','expired')),
+              record_id INTEGER,
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              FOREIGN KEY (record_id) REFERENCES records(id)
+            );
+            CREATE INDEX IF NOT EXISTS action_proposals_owner_idx
+              ON action_proposals (owner_id, expires_at);
         """)
         self.db.commit()
 
@@ -121,6 +139,60 @@ class Memory:
         )
         self.db.commit()
         return int(cursor.lastrowid)
+
+    def create_proposal(self, owner_id: int, kind: str, title: str,
+                        priority: str, code: str) -> None:
+        check_proposal(kind, title, priority, code)
+        now = datetime.now(timezone.utc)
+        self.db.execute(
+            "INSERT INTO action_proposals(code,owner_id,kind,title,priority,status,created_at,expires_at)"
+            " VALUES (?,?,?,?,?,'pending',?,?)",
+            (code, owner_id, kind, title, priority, now.isoformat(),
+             (now + timedelta(minutes=15)).isoformat()))
+        self.db.commit()
+
+    def confirm_proposal(self, owner_id: int, code: str) -> tuple[str, int | None]:
+        if not code or len(code) != 12:
+            return "missing", None
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                "SELECT * FROM action_proposals WHERE code=? AND owner_id=?",
+                (code, owner_id)).fetchone()
+            if not row:
+                result = ("missing", None)
+            elif row["status"] == "confirmed":
+                result = ("already", row["record_id"])
+            elif row["status"] != "pending":
+                result = (row["status"], None)
+            elif datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
+                self.db.execute("UPDATE action_proposals SET status='expired' WHERE code=?", (code,))
+                result = ("expired", None)
+            else:
+                now = now_iso()
+                cursor = self.db.execute(
+                    "INSERT INTO records(owner_id,kind,title,priority,status,created_at,updated_at)"
+                    " VALUES(?,?,?,?,?,?,?)",
+                    (owner_id,row["kind"],row["title"],row["priority"],
+                     "aberta",now,now))
+                rid = int(cursor.lastrowid)
+                self.db.execute(
+                    "UPDATE action_proposals SET status='confirmed',record_id=? WHERE code=?",
+                    (rid,code))
+                result = ("saved", rid)
+            self.db.commit()
+            return result
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def cancel_proposal(self, owner_id: int, code: str) -> bool:
+        cursor = self.db.execute(
+            "UPDATE action_proposals SET status='cancelled'"
+            " WHERE code=? AND owner_id=? AND status='pending'",
+            (code,owner_id))
+        self.db.commit()
+        return cursor.rowcount == 1
 
     def list(self, owner_id: int, kind: str | None = None, limit: int = 30) -> list[dict]:
         sql = "SELECT id,kind,title,priority,status,created_at FROM records WHERE owner_id=?"
@@ -211,9 +283,11 @@ def assistant_instructions(mem: Memory, owner_id: int) -> str:
         "Se faltar informação essencial, faça uma pergunta específica. "
         "Diferencie claramente aconselhar, sugerir e executar uma ação. "
         "Não diga que criou, alterou, concluiu ou agendou uma tarefa por conversa livre. "
-        "Nesta versão, ações de gravação acontecem EXCLUSIVAMENTE por comandos explícitos: /tarefa, /ideia e /feito. "
-        "Se o usuário pedir uma ação em linguagem livre, explique brevemente a limitação e "
-        "mostre somente o comando necessário, sem executar a ação. "
+        "Pedidos naturais explícitos de anotar tarefas/ideias geram propostas em separado; "
+        "a execução só acontece após o usuário confirmar o código da proposta. "
+        "Não declare tarefas gravadas sem confirmação efetiva no banco. "
+        "Outras operações exigem EXCLUSIVAMENTE comandos explícitos: /tarefa, /ideia e /feito. "
+        "Para pedidos fora do escopo, explique brevemente que ainda não os executa. "
         "Não há integração com calendário nem notificações automáticas. "
         "Se solicitado sobre agenda, diga que ela não está sincronizada. "
         "Prioridades P0/P1 são importantes, mas alertas noturnos não estão ativados. "
@@ -248,6 +322,11 @@ def call_openai(mem: Memory, owner_id: int, user_text: str, api_key: str, model:
             if c.get("type") == "output_text" and c.get("text"):
                 parts.append(c["text"])
     return "\n".join(parts).strip() or "Não consegui montar a resposta. Tente novamente."
+
+
+def natural_actions_enabled(mem) -> bool:
+    """Cloud habilita somente após migração e homologação; SQLite é local e seguro."""
+    return isinstance(mem, Memory) or os.environ.get("ORBITA_NATURAL_ACTIONS_ENABLED") == "1"
 
 
 def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> str:
@@ -291,6 +370,30 @@ def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> 
         return "Histórico local de conversa apagado. Tarefas e ideias permanecem registradas."
     if cmd.startswith("/"):
         return "Comando não reconhecido. Use /ajuda."
+    confirmation = parse_confirmation(raw)
+    if confirmation:
+        if not natural_actions_enabled(mem):
+            return "As confirmações naturais ainda estão em homologação neste servidor. Nenhum dado foi alterado."
+        operation, code = confirmation
+        if operation == "cancel":
+            return ("Proposta cancelada. Nenhum registro foi criado."
+                    if mem.cancel_proposal(uid, code)
+                    else "Essa proposta não está pendente ou não pertence a esta conta.")
+        outcome, rid = mem.confirm_proposal(uid, code)
+        if outcome == "saved":
+            return f"✅ Confirmação recebida. Registro #{rid} salvo na memória ORBITA."
+        if outcome == "already":
+            return f"Essa proposta já estava registrada como #{rid}. Não criei uma duplicata."
+        return ("Não gravei nada: proposta não encontrada, cancelada ou expirada. "
+                "Peça novamente para gerar outra proposta.")
+    proposed = classify_action(raw)
+    if proposed:
+        if not natural_actions_enabled(mem):
+            return ("Já entendi seu pedido, mas o registro natural ainda não está ativado neste servidor. "
+                    "Enquanto isso, use /tarefa ou /ideia. Nenhum dado foi alterado.")
+        code = new_code()
+        mem.create_proposal(uid, proposed.kind, proposed.title, proposed.priority, code)
+        return preview(proposed.kind, proposed.title, proposed.priority, code)
     if not ai_key:
         return (
             "Sou a Vânia. A ponte com o Telegram está funcionando! ✅\n\n"

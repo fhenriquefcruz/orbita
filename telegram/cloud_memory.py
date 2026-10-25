@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
+from action_proposals import check_proposal, CODE_RE
 
 TZ = ZoneInfo("America/Campo_Grande")
 ALLOWED_KINDS = {"tarefa": "tarefa", "ideia": "ideia"}
@@ -28,7 +29,8 @@ class CloudMemory:
         self.secret = secret
 
     def _call(self, table: str, method="GET", query=None, value=None, prefer="return=representation"):
-        if table not in ("orbita_records", "orbita_chat_messages", "orbita_telegram_updates"):
+        if table not in ("orbita_records", "orbita_chat_messages", "orbita_telegram_updates",
+                         "orbita_action_proposals", "rpc/orbita_confirm_action_proposal"):
             raise ValueError("tabela não permitida")
         suffix = "?" + urlencode(query, doseq=True, safe=".,():*") if query else ""
         data = None if value is None else json.dumps(value, ensure_ascii=False).encode("utf-8")
@@ -64,6 +66,44 @@ class CloudMemory:
             "created_at": now, "updated_at": now,
         })
         return int(row[0]["telegram_seq"])
+
+    def create_proposal(self, owner_id: int, kind: str, title: str,
+                        priority: str, code: str) -> None:
+        check_proposal(kind, title, priority, code)
+        response = self._call("orbita_action_proposals", "POST", value={
+            "code": code, "user_id": self.user_id, "telegram_id": int(owner_id),
+            "kind": kind, "title": title, "priority": priority
+        }, prefer="return=representation")
+        if not isinstance(response, list) or len(response) != 1 or response[0].get("code") != code:
+            raise RuntimeError("Não foi possível guardar a proposta para confirmação")
+
+    def confirm_proposal(self, owner_id: int, code: str) -> tuple[str, int | None]:
+        if not CODE_RE.fullmatch(code or ""):
+            return "missing", None
+        response = self._call("rpc/orbita_confirm_action_proposal", "POST", value={
+            "p_code": code, "p_user_id": self.user_id,
+            "p_telegram_id": int(owner_id)
+        }, prefer="return=representation")
+        if not isinstance(response, list) or len(response) != 1:
+            raise RuntimeError("Confirmação remota sem resultado verificável")
+        result = response[0]
+        status = result.get("outcome")
+        if status not in {"missing", "already", "saved", "cancelled", "expired"}:
+            raise RuntimeError("Resultado de confirmação remoto desconhecido")
+        number = result.get("record_number")
+        if status in {"saved", "already"} and (not isinstance(number, int) or number < 1):
+            raise RuntimeError("Resultado remoto sem identificador válido")
+        return status, number if status in {"saved", "already"} else None
+
+    def cancel_proposal(self, owner_id: int, code: str) -> bool:
+        if not CODE_RE.fullmatch(code or ""):
+            return False
+        result = self._call("orbita_action_proposals", "PATCH", query={
+            "code": "eq." + code, "user_id": "eq." + self.user_id,
+            "telegram_id": "eq." + str(int(owner_id)), "status": "eq.pending"
+        }, value={"status": "cancelled"}, prefer="return=representation")
+        return (isinstance(result, list) and len(result) == 1
+                and result[0].get("code") == code)
 
     def list(self, owner_id: int, kind=None, limit=30) -> list[dict]:
         result = self._call("orbita_records", query={

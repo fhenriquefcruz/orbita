@@ -63,15 +63,14 @@ class NaturalChatTest(unittest.TestCase):
         self.assertEqual(len(self.memory.history(10)), 4)
         self.assertEqual(len(self.memory.list(10)), 0)
 
-    def test_free_text_action_request_is_consultative(self):
-        with patch("bot.urlopen", return_value=FakeResponse(
-                "Posso ajudar. Para registrar, envie /tarefa P1 | Revisar relatório."
-        )):
+    def test_free_text_action_request_prepares_only_a_proposal(self):
+        with patch("bot.new_code", return_value="ABCDEF123456"), patch("bot.urlopen") as model:
             result = reply_text("Vânia, crie uma tarefa urgente para revisar relatório",
                                 10, self.memory, "dummy_api_key", "test-model")
-        self.assertIn("/tarefa P1", result)
-        self.assertEqual(len(self.memory.list(10)), 0,
-                         "O modelo não pode registrar tarefas por conta própria")
+        self.assertIn("confirmar ABCDEF123456", result)
+        self.assertIn("NÃO registrei nada", result)
+        self.assertEqual(len(self.memory.list(10)), 0)
+        model.assert_not_called()
 
     def test_no_api_key_returns_clear_instructions_without_storing_chat(self):
         with patch("bot.urlopen") as api:
