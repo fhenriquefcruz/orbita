@@ -295,8 +295,15 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         # O restauro já solicita reload; esta leitura independente testa o boot do app.
         page.reload(wait_until="networkidle")
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+        page.wait_for_timeout(800)
+        print("RESTORE DEBUG", page.evaluate("""() => ({
+            stat:document.querySelector('#statOpen')?.textContent,
+            items:document.querySelector('#recordsList')?.textContent.slice(0,200),
+            stored:JSON.parse(localStorage.getItem('orbita_v12_local')||'{}').records?.map(x=>({id:x.id,status:x.status,title:x.title})),
+            route:location.hash, auth:document.documentElement.getAttribute('data-orbita-auth')
+        })"""), "ERR", errors[-5:], flush=True)
         page.wait_for_function(
-            "document.querySelector('#statOpen')?.textContent.trim() === '1'"
+            "document.querySelector('#statOpen')?.textContent.trim() === '1'", timeout=5000
         )
         assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
 
