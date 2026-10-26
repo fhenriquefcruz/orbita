@@ -1,5 +1,13 @@
 # ORBITA 3.0 — Homologação do Supabase Auth
 
+## Homologação HTTP final de chat — 26/10/2026
+
+- **Aprovado com duas sessões reais Auth/JWT** no computador do titular: isolamento dos registros e chat por HTTP; segunda conta não lê nem exclui chat do titular. O script `quality/auth_chat_fixture_http.py` registrou exclusão comprovada de sua única mensagem sintética.
+- Verificação adicional diretamente no Supabase após o teste: **2 contas Auth confirmadas**, **0 linhas de chat** e **0 fixtures com prefixo `ORBITA_RLS_FIXTURE_`**, mantendo **1 registro original** e ausência da tabela/RPC de propostas SQL 002.
+- **Próxima barreira: backup privado integral e restauração isolada.** A edição para Windows está em `quality/WINDOWS_BACKUP_RELEASE_GATE_3_28.md`; não usar validações POSIX de permissões como certificação de ACLs NTFS.
+- As migrações SQL 002/003 continuam pendentes. Nenhum backup foi recebido pelo assistente ou validado por restauração. `main` e flags de ações naturais/webhook permanecem intocadas.
+
+
 ## Revisão operacional de 25/10/2026 — Supabase conectado
 
 - Organização **ORBITA** e projeto exclusivo `orbita` (`tbqfymedgdsdrgkqmuni`) confirmados como **ACTIVE_HEALTHY** na região `sa-east-1`.
@@ -22,7 +30,7 @@
 - Revisar, aplicar somente após autorização e testar as migrações SQL 002/003 no projeto dedicado, repetindo `infra/supabase/preflight_readonly.sql` e o relatório `quality/SUPABASE_RELEASE_PREFLIGHT_3_21.md`.
 - **Estado Auth real em 25/10/2026:** uma única conta Auth com e-mail confirmado, segunda conta autorizada ainda pendente. `quality/auth_dual_login_runner.py` pode autenticar as duas contas **localmente sem copiar JWTs**, logo após cadastro legítimo no Dashboard. Nenhum JWT/senha real foi utilizado nesta etapa; falta a prova HTTP com duas identidades distintas.
 - Testar restauração de sessão, logout, redefinição de senha e links de recuperação reais.
-- **Auth/JWT real validado em 26/10/2026:** duas sessões HTTP legítimas e isolamento dos registros passaram no computador do titular. Verificação do chat continuou **PENDENTE** por ausência de mensagens persistidas. Aurora 3.27 adicionou fixture HTTP opt-in com limpeza verificada (`quality/auth_chat_fixture_http.py`) e instruções (`quality/AUTH_HTTP_CHAT_FIXTURE_3_27.md`). Teste de fixture ainda não executado em ambiente real. Nenhuma migração permanente autorizada.
+- **Auth/JWT e isolamento HTTP do chat APROVADOS em 26/10/2026**: o titular executou o fixture opt-in e confirmou a limpeza; consulta independente ao Supabase encontrou 0 fixtures remanescentes. Ver evidência na abertura deste documento e manual Aurora 3.28. Ainda faltam backup e restauração isolada antes das migrações.
 - Testar reconciliação com backup, exclusão, recuperação e limpeza do cache PWA.
 - Realizar smoke test em Safari/iPhone, Android/Chrome e desktop.
 - Avaliar o aviso de proteção contra senhas vazadas desabilitada apresentado pelo auditor.
