@@ -42,7 +42,7 @@ class WindowsBackupStaticGates(unittest.TestCase):
     def test_hostname_scoped_to_project(self):
         s = self.script(0)
         self.assertIn("db.", s)
-        self.assertIn(r"pooler\\.supabase\\.com", s)
+        self.assertIn(r"pooler\.supabase\.com", s)
         self.assertIn("postgres.", s)
         self.assertIn('"5432"', s)
         self.assertIn('"require"', s)
