@@ -22,7 +22,7 @@
 - Revisar, aplicar somente após autorização e testar as migrações SQL 002/003 no projeto dedicado, repetindo `infra/supabase/preflight_readonly.sql` e o relatório `quality/SUPABASE_RELEASE_PREFLIGHT_3_21.md`.
 - **Estado Auth real em 25/10/2026:** uma única conta Auth com e-mail confirmado, segunda conta autorizada ainda pendente. `quality/auth_dual_login_runner.py` pode autenticar as duas contas **localmente sem copiar JWTs**, logo após cadastro legítimo no Dashboard. Nenhum JWT/senha real foi utilizado nesta etapa; falta a prova HTTP com duas identidades distintas.
 - Testar restauração de sessão, logout, redefinição de senha e links de recuperação reais.
-- Ensaio PostgreSQL com `SET LOCAL ROLE` aprovado (Aurora 3.23). Suite Aurora 3.24 verifica a lógica de HTTP/JWT com transportes mockados; **a prova real depende de duas contas, sessões JWT legítimas e teste de escrita/exclusão com fixture controlado**. O chat real possui zero mensagens e não permite comprovar vazamento de conteúdo por leitura cruzada até haver um fixture autorizado.
+- **Auth/JWT real validado em 26/10/2026:** duas sessões HTTP legítimas e isolamento dos registros passaram no computador do titular. Verificação do chat continuou **PENDENTE** por ausência de mensagens persistidas. Aurora 3.27 adicionou fixture HTTP opt-in com limpeza verificada (`quality/auth_chat_fixture_http.py`) e instruções (`quality/AUTH_HTTP_CHAT_FIXTURE_3_27.md`). Teste de fixture ainda não executado em ambiente real. Nenhuma migração permanente autorizada.
 - Testar reconciliação com backup, exclusão, recuperação e limpeza do cache PWA.
 - Realizar smoke test em Safari/iPhone, Android/Chrome e desktop.
 - Avaliar o aviso de proteção contra senhas vazadas desabilitada apresentado pelo auditor.
