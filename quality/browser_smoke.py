@@ -653,6 +653,56 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         assert not sync_errors, sync_errors
         sync_context.close()
 
+        # Aurora 3.26: links Supabase não podem deixar access/refresh tokens
+        # no hash visível. Não são tokens reais: somente fixtures mockados.
+        callbacks = (
+            ("type=magiclink&access_token=test_access_token_owner&"
+             "refresh_token=test_refresh_token&expires_in=3600", "unlocked"),
+            ("type=recovery&access_token=test_access_token_owner&"
+             "refresh_token=test_refresh_token&expires_in=3600", "reset"),
+            ("type=invite&access_token=test_access_token_owner&"
+             "refresh_token=test_refresh_token&expires_in=3600", "reset"),
+            ("type=unknown&access_token=test_access_token_owner&"
+             "refresh_token=test_refresh_token&expires_in=3600", "blocked"),
+            ("type=magiclink&access_token=test_access_token_owner", "blocked"),
+            ("error=access_denied&error_description=private_details", "blocked"),
+        )
+        for callback, expected in callbacks:
+            callback_context = browser.new_context(viewport={"width":390,"height":844})
+            callback_page = callback_context.new_page()
+            errors = []
+            callback_page.on("pageerror", lambda exc: errors.append(str(exc)))
+            callback_page.route("**/cloud-config.js", lambda route: route.fulfill(
+                status=200, content_type="application/javascript",
+                body="window.ORBITA_CLOUD_PUBLIC={url:'" + ORIGIN +
+                     "',publishableKey:'sb_publishable_public_test'};"))
+            callback_page.route(ORIGIN + "/**", mock_api)
+            callback_page.route(ORIGIN + "/rest/v1/**", mock_rest)
+            callback_page.goto(url + "#" + callback, wait_until="networkidle")
+            callback_page.wait_for_function("location.hash === ''")
+            assert callback_page.url == url, (
+                "Supabase callback left credentials or errors in URL"
+            )
+            if expected == "unlocked":
+                callback_page.locator("#orbitaAuthRoot").wait_for(state="hidden")
+                assert callback_page.evaluate(
+                    "window.OrbitaAuth.isAuthenticated()"
+                )
+            else:
+                callback_page.locator("#orbitaAuthRoot").wait_for(state="visible")
+                assert not callback_page.evaluate(
+                    "window.OrbitaAuth.isAuthenticated()"
+                )
+                if expected == "reset":
+                    assert callback_page.locator("#orbitaAuthReset").is_visible()
+                else:
+                    assert callback_page.locator("#orbitaAuthLogin").is_visible()
+                    assert callback_page.evaluate(
+                        "sessionStorage.getItem('orbita_auth_session_v1')"
+                    ) is None
+            assert not errors, errors
+            callback_context.close()
+
         print("Browser smoke: Auth, isolamento, importação unidirecional e PATCH concorrente: OK")
         browser.close()
     server.shutdown()

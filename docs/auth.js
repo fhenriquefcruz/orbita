@@ -9,6 +9,21 @@
   const key = String(config.publishableKey || '');
   const configured = /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(base) &&
     /^(sb_publishable_[\w-]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/.test(key);
+  // Links de e-mail podem chegar com tokens no fragmento. Capturar em memória
+  // e LIMPAR a URL imediatamente, antes de renderizar ou consultar a API.
+  // Nunca usar fragmentos não reconhecidos como prova de autenticação.
+  const callbackFragment = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const callbackQuery = new URLSearchParams(location.search);
+  const tokenFragment = ['access_token', 'refresh_token', 'token_hash']
+    .some(name => callbackFragment.has(name));
+  const callbackError = ['error', 'error_code'].some(name => callbackFragment.has(name));
+  const sensitiveQuery = ['access_token', 'refresh_token', 'token_hash', 'code',
+    'error', 'error_code'].some(name => callbackQuery.has(name));
+  if (tokenFragment || callbackError || sensitiveQuery) {
+    history.replaceState(null, '', location.pathname +
+      (sensitiveQuery ? '' : location.search));
+  }
+
   const STORAGE = 'orbita_auth_session_v1';
   const BINDING = 'orbita_cloud_binding_v1';
   const LEGACY = ['orbita_v12_local', 'orbita_v13_chat', 'orbita_cloud_tombstones_v1'];
@@ -243,21 +258,41 @@
       $('orbitaForgot').hidden = true;
       return;
     }
-    const fragment = new URLSearchParams(location.hash.replace(/^#/, ''));
-    if (fragment.get('type') === 'recovery' && fragment.get('access_token') && fragment.get('refresh_token')) {
-      try {
-        remember({access_token:fragment.get('access_token'),refresh_token:fragment.get('refresh_token'),
-          expires_in:Number(fragment.get('expires_in') || 3600)});
-        history.replaceState(null,'',location.pathname + location.search);
-        await getVerifiedUser();
-        show('reset');
-      } catch (err) { forget(); show('login','Link inválido ou expirado. Solicite outro e-mail de recuperação.'); }
+    if (sensitiveQuery) {
+      // O painel implementa fluxo implícito. Não tratar code/PKCE como sessão.
+      forget();
+      show('login', 'Retorno de autenticação não reconhecido. Solicite outro link de acesso.');
       return;
     }
-    if (location.hash.includes('error=')) {
-      const error = fragment.get('error_description') || 'O link de autenticação não pôde ser validado.';
-      history.replaceState(null,'',location.pathname + location.search);
-      show('login', error);
+    if (callbackError) {
+      forget();
+      show('login', 'O link de autenticação não pôde ser validado. Solicite outro link.');
+      return;
+    }
+    if (tokenFragment) {
+      const kind = callbackFragment.get('type');
+      const supported = ['recovery', 'invite', 'magiclink', 'signup', 'email_change'];
+      const access = callbackFragment.get('access_token');
+      const refreshToken = callbackFragment.get('refresh_token');
+      if (!supported.includes(kind) || !access || !refreshToken) {
+        forget();
+        show('login', 'Link de acesso incompleto ou não reconhecido.');
+        return;
+      }
+      try {
+        remember({access_token:access, refresh_token:refreshToken,
+          expires_in:Number(callbackFragment.get('expires_in') || 3600)});
+        // A URL já foi limpa. Só uma verificação /auth/v1/user permite entrar.
+        const verified = await getVerifiedUser();
+        if (kind === 'recovery' || kind === 'invite') {
+          show('reset');
+        } else {
+          unlock(verified);
+        }
+      } catch (_) {
+        forget();
+        show('login', 'Link inválido ou expirado. Solicite outro acesso.');
+      }
       return;
     }
     try {
