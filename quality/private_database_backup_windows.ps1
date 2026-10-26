@@ -21,7 +21,16 @@ function Find-Tool([string]$tool) {
 }
 function Assert-Private([string]$path) {
   $acl = Get-Acl -LiteralPath $path
-  if (-not $acl.AreAccessRulesProtected) { Fail "ACL herdada no backup; abortando." }
+  $item = Get-Item -LiteralPath $path -Force
+  if ($item.PSIsContainer) {
+    if (-not $acl.AreAccessRulesProtected) { Fail "ACL herdada na pasta de backup; abortando." }
+  } else {
+    # Arquivos podem herdar ACEs de uma pasta ja protegida.
+    # Verifique primeiro a pasta e, depois, todos os ACEs efetivos do arquivo.
+    $parent = Split-Path -Parent $path
+    $parentAcl = Get-Acl -LiteralPath $parent
+    if (-not $parentAcl.AreAccessRulesProtected) { Fail "Pasta do arquivo nao protegida." }
+  }
   foreach ($entry in $acl.Access) {
     $sid = $entry.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value
     if ($allowed -notcontains $sid) { Fail "ACL de terceiros presente no backup; abortando." }
