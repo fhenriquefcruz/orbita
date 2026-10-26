@@ -95,6 +95,26 @@ class WindowsBackupStaticGates(unittest.TestCase):
                   "archive_bytes"):
             self.assertIn(p, s)
 
+    def test_database_port_checked_before_password(self):
+        s = self.script(0)
+        self.assertIn("Test-NetConnection", s)
+        self.assertIn("-InformationLevel Quiet", s)
+        self.assertIn("PORTA 5432 INACESSIVEL", s)
+        self.assertLess(
+            s.index("Test-NetConnection -ComputerName"),
+            s.index('Read-Host "Senha do BANCO ORBITA')
+        )
+
+    def test_windows_native_command_failure_handled(self):
+        main = self.script(0)
+        verifier = self.script(1)
+        for text in (main, verifier):
+            self.assertIn('$ErrorActionPreference = "Continue"', text)
+            self.assertIn('$ErrorActionPreference = $preference', text)
+            self.assertIn("$listExit = $LASTEXITCODE", text)
+        self.assertIn("$dumpExit = $LASTEXITCODE", main)
+        self.assertNotIn('Write-Output $env:PGPASSWORD', main)
+
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell not installed on Linux runner")
     def test_powershell_source_parses_without_running_any_commands(self):
         for path in SCRIPTS:
