@@ -54,3 +54,37 @@ jobs:
               if re.search(r'(?<![A-Za-z0-9])\d{8,12}:AA[A-Za-z0-9_-]{25,}',s): leaked.append(str(p))
           if leaked: sys.exit('Possível token Telegram incluído: '+', '.join(leaked))
           PYSCAN
+  windows-backup-safety:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar sintaxe dos scripts de backup no PowerShell Windows
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $files = @(
+            ".\\quality\\private_database_backup_windows.ps1",
+            ".\\quality\\verify_database_backup_windows.ps1"
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path -LiteralPath $file).Path, [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              throw "Falha de sintaxe no script de backup $file."
+            }
+            Write-Output "PowerShell 5.1: sintaxe validada"
+          }
+      - name: Garantir que o gate Windows nao le credenciais na CI
+        shell: powershell
+        run: |
+          $text = Get-Content ".\\quality\\private_database_backup_windows.ps1" -Raw
+          if ($text -notmatch '\[switch\]\$CheckPrerequisites') {
+            throw "O modo apenas diagnostico foi removido."
+          }
+          if ($text -notmatch 'RESTAURACAO PENDENTE') {
+            throw "O bloqueio de restauracao nao foi encontrado."
+          }
+          Write-Output "Gate de backup continua manual; CI nao conecta ao Supabase"
