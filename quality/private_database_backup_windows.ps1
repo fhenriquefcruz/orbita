@@ -77,6 +77,15 @@ $dbUser = (Read-Host "Database user exibido em Connect").Trim()
 $direct = $hostName -eq ("db."+$ref+".supabase.co") -and $dbUser -eq "postgres"
 $pooler = $hostName -match '^[a-z0-9.-]+\.pooler\.supabase\.com$' -and $dbUser -eq ("postgres."+$ref)
 if (-not ($direct -or $pooler)) { Fail "Host/usuario nao pertencem ao projeto ORBITA." }
+# Antes de pedir uma senha, comprovar uma conexao TCP a porta escolhida.
+try {
+  $reachable = Test-NetConnection -ComputerName $hostName -Port 5432 -InformationLevel Quiet -WarningAction SilentlyContinue
+} catch {
+  Fail "Nao foi possivel testar a rede PostgreSQL. Confira DNS e firewall."
+}
+if (-not $reachable) {
+  Fail "PORTA 5432 INACESSIVEL: confira Connect > Session pooler e Test-NetConnection. Tente uma rede autorizada diferente. Nenhuma senha foi utilizada."
+}
 $securePass = Read-Host "Senha do BANCO ORBITA (oculta)" -AsSecureString
 if ($securePass.Length -eq 0) { Fail "Senha ausente." }
 $partial = $null
@@ -101,16 +110,33 @@ try {
   $env:PGDATABASE = "postgres"
   $env:PGSSLMODE = "require"
   $env:PGCONNECT_TIMEOUT = "10"
-  & $pgDump --format=custom --no-password --file $partial 1>$null 2>$null
-  if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $partial -PathType Leaf)) {
-    Fail "pg_dump falhou; revise host, senha, TLS e permissoes."
+  # Windows PowerShell 5.1 trata stderr nativo como erro terminante
+  # quando a preferencia e Stop. Suprimir a mensagem so nesta chamada,
+  # capturar o codigo de saida e devolver mensagem sem segredos.
+  $preference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    & $pgDump --format=custom --no-password --file $partial 1>$null 2>$null
+    $dumpExit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $preference
+  }
+  if ($dumpExit -ne 0 -or -not (Test-Path -LiteralPath $partial -PathType Leaf)) {
+    Fail "pg_dump nao concluiu. Confira conexao 5432, credencial do BANCO e acesso TLS. Nenhuma migracao executada."
   }
   if ((Get-Item -LiteralPath $partial).Length -lt 1024) {
     Fail "Arquivo de dump inesperadamente pequeno."
   }
   Assert-Private $partial
-  $tocLines = @(& $pgRestore --list $partial 2>$null)
-  if ($LASTEXITCODE -ne 0) { Fail "pg_restore nao conseguiu listar o dump." }
+  $preference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = "Continue"
+    $tocLines = @(& $pgRestore --list $partial 2>$null)
+    $listExit = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $preference
+  }
+  if ($listExit -ne 0) { Fail "pg_restore nao conseguiu listar o dump." }
   $toc = $tocLines -join [Environment]::NewLine
   foreach ($tab in @(@("auth","users"),@("public","orbita_records"),@("public","orbita_chat_messages"),@("public","orbita_telegram_updates"))) {
     if (-not (Has-TableData $toc $tab[0] $tab[1])) {
