@@ -73,26 +73,39 @@ async def telegram_webhook(request: Request,
         replay = False
         if not memory.claim_update(update_id):
             state = memory.get_update(update_id)
-            if state and state.get("status") == "delivered":
+            status = state.get("status") if isinstance(state, dict) else None
+            if status == "delivered":
                 return {"ok": True, "duplicate": True}
-            if state and state.get("status") == "processed":
-                if not verified_delivery:
-                    return {"ok": True, "duplicate": True}
+            if status == "processed" and not verified_delivery:
+                return {"ok": True, "duplicate": True}
+
+            # Em main, 'replied' e a fila legada, gravada ANTES do envio.
+            # Reenvio seguro para memoria: NUNCA reexecutar reply_text.
+            if status == "replied" and not verified_delivery:
                 answer = state.get("response")
                 if not isinstance(answer, str) or not answer.strip():
-                    # Não tentar inferir nem executar novamente a ação original.
+                    return {"ok": True, "pending": True}
+                replay = True
+            elif status == "processed" and verified_delivery:
+                answer = state.get("response")
+                if not isinstance(answer, str) or not answer.strip():
                     return {"ok": True, "pending": True}
                 replay = True
             else:
-                # Recebido mas não processado: pode haver um worker em andamento.
-                # NÃO reexecutar ações; a recuperação de 'received' precisa de lease.
+                # 'received' sem resposta nao pode disparar comando novamente.
                 return {"ok": True, "pending": True}
         else:
             answer = reply_text(content, owner_id, memory,
                                 os.environ.get("OPENAI_API_KEY", "").strip(),
                                 os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
-            # Só enviar depois de armazenar a resposta de forma verificável.
-            memory.finish_update(update_id, answer)
+            if verified_delivery:
+                # V2: guarda 'processed' antes de enviar; so apos envio
+                # comprovado tenta concluir em 'delivered'.
+                memory.finish_update(update_id, answer)
+            else:
+                # Legado: guarda 'replied' antes de enviar; 'processed'
+                # somente depois de sendMessage retornar sucesso.
+                memory.stage_reply(update_id, answer)
         payload = {"chat_id": owner_id, "text": answer[:3900]}
         buttons = inline_keyboard(answer) if not callback and classify_action(content) else None
         if buttons:
@@ -100,10 +113,15 @@ async def telegram_webhook(request: Request,
         # Se sendMessage falhar, o Telegram repetirá o update. Com v2 ativo,
         # recuperamos a resposta salva sem recriar a tarefa.
         telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage", payload, timeout=10)
-        if verified_delivery and not memory.mark_delivered(update_id):
-            # Entrega pode ter ocorrido. Ao repetir pode chegar mensagem dupla,
-            # mas a ação de registro não é reexecutada (sem falsa promessa exactly-once).
-            raise RuntimeError("Falha ao confirmar estado de entrega do Telegram")
+        if verified_delivery:
+            if not memory.mark_delivered(update_id):
+                # Entrega pode ter ocorrido. Ao repetir pode chegar mensagem dupla,
+                # mas a ação de registro não é reexecutada (sem falsa promessa exactly-once).
+                raise RuntimeError("Falha ao confirmar estado de entrega do Telegram")
+        else:
+            # Confirma SOMENTE apos sendMessage bem-sucedido. Em caso de falha,
+            # 'replied' e a resposta persistida permanecem para o retry.
+            memory.finish_update(update_id)
         if callback.get("id"):
             try:
                 telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "answerCallbackQuery",
