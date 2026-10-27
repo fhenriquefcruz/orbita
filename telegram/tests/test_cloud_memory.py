@@ -143,6 +143,46 @@ class TestCloudMemory(unittest.TestCase):
             self.assertFalse(self.mem.complete(5,17))
         self.assertEqual(len(calls), 2)
 
+    def test_legacy_stage_reply_is_scoped_and_requires_commit_confirmation(self):
+        expected={'update_id':152,'status':'replied','response':'Mensagem'}
+        with patch.object(self.mem,'_call',return_value=[expected]) as call:
+            self.mem.stage_reply(152,'Mensagem')
+            kwargs=call.call_args.kwargs
+            self.assertEqual(call.call_args.args[:2],('orbita_telegram_updates','PATCH'))
+            self.assertEqual(kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(kwargs['query']['status'],'eq.received')
+            self.assertEqual(kwargs['value'],{'status':'replied','response':'Mensagem'})
+            self.assertEqual(kwargs['prefer'],'return=representation')
+
+    def test_legacy_stage_reply_rejects_empty_and_wrong_ack(self):
+        with patch.object(self.mem,'_call') as call:
+            with self.assertRaises(ValueError):
+                self.mem.stage_reply(152,'')
+            call.assert_not_called()
+        for result in ([],[{'update_id':999,'status':'replied','response':'Mensagem'}],
+                       [{'update_id':152,'status':'processed','response':'Mensagem'}],
+                       [{'update_id':152,'status':'replied','response':'Outro'}]):
+            with self.subTest(result=result):
+                with patch.object(self.mem,'_call',return_value=result):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.stage_reply(152,'Mensagem')
+
+    def test_legacy_post_send_ack_checks_owner_revision_and_row(self):
+        with patch.object(self.mem,'_call',return_value=[
+                {'update_id':153,'status':'processed'}]) as call:
+            self.mem.confirm_legacy_sent(153)
+            kwargs=call.call_args.kwargs
+            self.assertEqual(kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(kwargs['query']['status'],'eq.replied')
+            self.assertEqual(kwargs['value'],{'status':'processed'})
+            self.assertEqual(kwargs['prefer'],'return=representation')
+        for result in ([],[{'update_id':999,'status':'processed'}],
+                       [{'update_id':153,'status':'replied'}]):
+            with self.subTest(result=result):
+                with patch.object(self.mem,'_call',return_value=result):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.confirm_legacy_sent(153)
+
     def test_finish_update_requires_verified_persistence(self):
         row={'update_id':135,'status':'processed'}
         with patch.object(self.mem,'_call',return_value=[row]) as call:
