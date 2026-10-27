@@ -203,6 +203,40 @@ class CloudMemory:
             prefer="resolution=ignore-duplicates,return=representation")
         return bool(rows)
 
+    def stage_reply(self, update_id: int, answer: str) -> None:
+        """Fila legada: grava resposta duravel ANTES do envio ao Telegram.
+
+        A transicao received->replied foi aplicada em main em 24/10/2026.
+        Continua obrigatoria enquanto ORBITA_WEBHOOK_DELIVERY_V2_ENABLED=0.
+        """
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("Resposta vazia nao pode ser preparada")
+        ident = int(update_id)
+        rows = self._call("orbita_telegram_updates", "PATCH", query={
+            "update_id": "eq." + str(ident), "user_id": "eq." + self.user_id,
+            "status": "eq.received",
+        }, value={"status": "replied", "response": answer[:3900]},
+            prefer="return=representation")
+        if (not isinstance(rows, list) or len(rows) != 1 or
+                not isinstance(rows[0], dict) or
+                rows[0].get("update_id") != ident or
+                rows[0].get("status") != "replied" or
+                rows[0].get("response") != answer[:3900]):
+            raise RuntimeError("Resposta legada nao persistida para reenvio")
+
+    def confirm_legacy_sent(self, update_id: int) -> None:
+        """ACK legado apos sendMessage: replied->processed, com verificacao."""
+        ident = int(update_id)
+        rows = self._call("orbita_telegram_updates", "PATCH", query={
+            "update_id": "eq." + str(ident), "user_id": "eq." + self.user_id,
+            "status": "eq.replied",
+        }, value={"status": "processed"}, prefer="return=representation")
+        if (not isinstance(rows, list) or len(rows) != 1 or
+                not isinstance(rows[0], dict) or
+                rows[0].get("update_id") != ident or
+                rows[0].get("status") != "processed"):
+            raise RuntimeError("ACK de resposta legada nao persistido")
+
     def finish_update(self, update_id: int, answer: str) -> None:
         """Guarda resposta antes de enviar. Falha fechada se não houver linha alterada."""
         if not isinstance(answer, str) or not answer.strip():
