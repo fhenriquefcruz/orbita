@@ -71,6 +71,7 @@ async def telegram_webhook(request: Request,
     verified_delivery = os.environ.get("ORBITA_WEBHOOK_DELIVERY_V2_ENABLED") == "1"
     try:
         replay = False
+        legacy_queued = False
         if not memory.claim_update(update_id):
             state = memory.get_update(update_id)
             if state and state.get("status") == "delivered":
@@ -78,21 +79,34 @@ async def telegram_webhook(request: Request,
             if state and state.get("status") == "processed":
                 if not verified_delivery:
                     return {"ok": True, "duplicate": True}
+                # V2 consegue reencaminhar resposta salva sem reexecutar a tarefa.
                 answer = state.get("response")
                 if not isinstance(answer, str) or not answer.strip():
-                    # Não tentar inferir nem executar novamente a ação original.
                     return {"ok": True, "pending": True}
                 replay = True
+            elif state and state.get("status") == "replied":
+                # Estado legado ja usado por main: nunca recriar a acao.
+                # E necessario concluir o ACK replied->processed apos enviar.
+                answer = state.get("response")
+                if not isinstance(answer, str) or not answer.strip():
+                    return {"ok": True, "pending": True}
+                replay = True
+                legacy_queued = True
             else:
-                # Recebido mas não processado: pode haver um worker em andamento.
-                # NÃO reexecutar ações; a recuperação de 'received' precisa de lease.
+                # received sem resposta pode representar execucao em andamento.
+                # Reprocessar comandos aqui poderia criar tarefas duplicadas.
                 return {"ok": True, "pending": True}
         else:
             answer = reply_text(content, owner_id, memory,
                                 os.environ.get("OPENAI_API_KEY", "").strip(),
                                 os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
-            # Só enviar depois de armazenar a resposta de forma verificável.
-            memory.finish_update(update_id, answer)
+            if verified_delivery:
+                # V2 armazena response em processed; delivered apos envio.
+                memory.finish_update(update_id, answer)
+            else:
+                # Modo atual/legado: grava replied antes de qualquer envio.
+                memory.stage_reply(update_id, answer)
+                legacy_queued = True
         payload = {"chat_id": owner_id, "text": answer[:3900]}
         buttons = inline_keyboard(answer) if not callback and classify_action(content) else None
         if buttons:
@@ -100,9 +114,13 @@ async def telegram_webhook(request: Request,
         # Se sendMessage falhar, o Telegram repetirá o update. Com v2 ativo,
         # recuperamos a resposta salva sem recriar a tarefa.
         telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage", payload, timeout=10)
+        # Se falhar, o update fica como replied (legado) ou processed (V2)
+        # com response salva, permitindo retry sem repetir a acao original.
+        if legacy_queued:
+            memory.confirm_legacy_sent(update_id)
         if verified_delivery and not memory.mark_delivered(update_id):
-            # Entrega pode ter ocorrido. Ao repetir pode chegar mensagem dupla,
-            # mas a ação de registro não é reexecutada (sem falsa promessa exactly-once).
+            # Falha do ACK apos sendMessage pode duplicar resposta no retry.
+            # Nunca prometer exactly-once, mas nao reexecutar a tarefa.
             raise RuntimeError("Falha ao confirmar estado de entrega do Telegram")
         if callback.get("id"):
             try:
@@ -110,7 +128,8 @@ async def telegram_webhook(request: Request,
                               {"callback_query_id": callback["id"]}, timeout=10)
             except Exception as exc:
                 LOGGER.warning("Falha ao reconhecer botão Telegram (%s)", type(exc).__name__)
-        return {"ok": True, "replayed": True} if replay else {"ok": True}
+        return ({"ok": True, "resumed": True} if replay and legacy_queued and not verified_delivery
+                else {"ok": True, "replayed": True} if replay else {"ok": True})
     except HTTPException:
         raise
     except Exception as exc:
