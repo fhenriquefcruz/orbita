@@ -26,6 +26,43 @@ por HTTP** exercitado pelo teste, com limpeza verificada. Ela NÃO equivale
 a homologação de todas as ações de escrita, recuperação de conta, Safari,
 webhook ou recuperação de banco.
 
+## Diagnóstico de timeout do pooler (Aurora 3.28.1)
+
+Se o Windows informar **`pg_dump: connection timed out`**, isto ainda não
+é uma falha da senha. Primeiro, sem fornecer credenciais, rode:
+
+```powershell
+Test-NetConnection aws-1-sa-east-1.pooler.supabase.com -Port 5432
+Test-NetConnection tbqfymedgdsdrgkqmuni.supabase.co -Port 443
+```
+
+Os endereços acima são apenas os observados no ensaio do titular e no
+projeto ORBITA. Confirme o **host real do Session pooler no Connect**;
+este pode mudar. Verifique `TcpTestSucceeded` em cada resultado.
+O comando `Test-NetConnection` não autentica no banco e não envia senha.
+
+- **5432 False / 443 True:** acesso HTTPS não significa acesso nativo
+  PostgreSQL. A rede pode bloquear 5432, o pooler pode estar inacessível
+  ou o host pode ter mudado. Confirme a URL no Dashboard e teste em outra
+  rede autorizada, como hotspot particular, sem alterar o firewall global.
+- **5432 True:** repita o script. Se ocorrer outro erro, verifique o
+  *database user*, senha do banco, `sslmode=require` e detalhes de
+  conexão exibidos no Dashboard; não redefina a senha precipitadamente.
+- **443 False:** problema mais amplo de conexão, DNS, VPN, rede ou
+  indisponibilidade da rota local; verifique a conectividade antes de
+  prosseguir.
+
+O script passou a checar **5432 antes de pedir a senha** e a tratar os erros
+nativos do PowerShell 5.1 de modo controlado. Não force a troca para porta
+6543 do transaction pooler apenas para contornar o erro: para `pg_dump`,
+o Supabase recomenda conexão direta quando possível, ou o **Session pooler**
+em redes IPv4. Documentação de referência:
+https://supabase.com/docs/guides/database/connecting-to-postgres
+
+Atenção: o script **não cria backup** enquanto 5432 estiver indisponível.
+Uma tentativa malsucedida não comprova recuperabilidade. Mantenha SQL 002/003
+bloqueadas e nunca compartilhe senhas ou dumps.
+
 ## O backup é o próximo bloqueio
 
 Projeto ORBITA usa Supabase Free. O histórico de backup diário gerenciado

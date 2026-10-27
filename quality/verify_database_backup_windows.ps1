@@ -44,8 +44,15 @@ if ($hash -ine [string]$data.sha256) { Fail "Checksum SHA256 divergente." }
 $command = Get-Command pg_restore.exe -ErrorAction SilentlyContinue
 $pgRestore = if ($command) { $command.Source } else { "C:\Program Files\PostgreSQL\17\bin\pg_restore.exe" }
 if (-not (Test-Path -LiteralPath $pgRestore -PathType Leaf)) { Fail "pg_restore 17+ nao encontrado." }
-$lines = @(& $pgRestore --list $archive 2>$null)
-if ($LASTEXITCODE -ne 0) { Fail "pg_restore nao reconheceu o dump." }
+$preference = $ErrorActionPreference
+try {
+  $ErrorActionPreference = "Continue"
+  $lines = @(& $pgRestore --list $archive 2>$null)
+  $listExit = $LASTEXITCODE
+} finally {
+  $ErrorActionPreference = $preference
+}
+if ($listExit -ne 0) { Fail "pg_restore nao reconheceu o dump." }
 $toc = $lines -join [Environment]::NewLine
 foreach ($table in @(@("auth","users"),@("public","orbita_records"),@("public","orbita_chat_messages"),@("public","orbita_telegram_updates"))) {
   if (-not (Has-TableData $toc $table[0] $table[1])) { Fail "Tabela obrigatoria ausente do dump." }
