@@ -64,7 +64,8 @@ jobs:
           $ErrorActionPreference = "Stop"
           $files = @(
             ".\\quality\\private_database_backup_windows.ps1",
-            ".\\quality\\verify_database_backup_windows.ps1"
+            ".\\quality\\verify_database_backup_windows.ps1",
+            ".\\quality\\private_restore_preflight_windows.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
