@@ -71,6 +71,7 @@ async def telegram_webhook(request: Request,
     verified_delivery = os.environ.get("ORBITA_WEBHOOK_DELIVERY_V2_ENABLED") == "1"
     try:
         replay = False
+        legacy_replay = False
         if not memory.claim_update(update_id):
             state = memory.get_update(update_id)
             status = state.get("status") if isinstance(state, dict) else None
@@ -81,11 +82,14 @@ async def telegram_webhook(request: Request,
 
             # Em main, 'replied' e a fila legada, gravada ANTES do envio.
             # Reenvio seguro para memoria: NUNCA reexecutar reply_text.
-            if status == "replied" and not verified_delivery:
+            if status == "replied":
+                # Uma ativacao futura da V2 nao pode abandonar respostas
+                # legadas ja persistidas antes do envio.
                 answer = state.get("response")
                 if not isinstance(answer, str) or not answer.strip():
                     return {"ok": True, "pending": True}
                 replay = True
+                legacy_replay = True
             elif status == "processed" and verified_delivery:
                 answer = state.get("response")
                 if not isinstance(answer, str) or not answer.strip():
@@ -114,6 +118,10 @@ async def telegram_webhook(request: Request,
         # recuperamos a resposta salva sem recriar a tarefa.
         telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage", payload, timeout=10)
         if verified_delivery:
+            if legacy_replay:
+                # Replied (legado) -> processed -> delivered. Nao executar
+                # novamente a tarefa ao mudar a flag de entrega.
+                memory.finish_update(update_id)
             if not memory.mark_delivered(update_id):
                 # Entrega pode ter ocorrido. Ao repetir pode chegar mensagem dupla,
                 # mas a ação de registro não é reexecutada (sem falsa promessa exactly-once).
