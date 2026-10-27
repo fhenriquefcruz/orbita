@@ -175,7 +175,133 @@ class TestWebhook(unittest.TestCase):
                     'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
         self.assertEqual(response.status_code,200)
         cloud.return_value.mark_delivered.assert_not_called()
+        cloud.return_value.finish_update.assert_not_called()
+        cloud.return_value.stage_reply.assert_called_once_with(134, 'Lista de tarefas')
+        cloud.return_value.confirm_legacy_sent.assert_called_once_with(134)
         telegram.assert_called_once()
+
+    @staticmethod
+    def _fixture(update_id, command='/tarefa P1 | Comprar material'):
+        return {'update_id':update_id,
+                'message':{'chat':{'id':54321,'type':'private'},
+                           'from':{'id':54321,'is_bot':False},
+                           'text':command}}
+
+    def test_legacy_stages_response_before_sending(self):
+        from unittest.mock import MagicMock
+        update=self._fixture(140)
+        events=[]
+        mem=MagicMock()
+        mem.claim_update.return_value=True
+        mem.stage_reply.side_effect=lambda *args: events.append('staged')
+        mem.confirm_legacy_sent.side_effect=lambda *args: events.append('processed')
+        def sender(*args,**kwargs):
+            events.append('sent')
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'0'}), \
+             patch('api.index.CloudMemory',return_value=mem), \
+             patch('api.index.reply_text',return_value='Tarefa salva') as reply, \
+             patch('api.index.telegram_call',side_effect=sender):
+            result=self.client.post('/api/telegram',json=update,headers={
+                'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(result.status_code,200)
+        self.assertEqual(events,['staged','sent','processed'])
+        reply.assert_called_once()
+        mem.stage_reply.assert_called_once_with(140,'Tarefa salva')
+        mem.confirm_legacy_sent.assert_called_once_with(140)
+        mem.finish_update.assert_not_called()
+        mem.mark_delivered.assert_not_called()
+
+    def test_legacy_retry_replays_saved_answer_without_second_action(self):
+        from unittest.mock import MagicMock
+        mem=MagicMock()
+        mem.claim_update.side_effect=[True,False]
+        mem.get_update.return_value={'status':'replied','response':'Tarefa salva'}
+        sent=MagicMock(side_effect=[TimeoutError('telegram offline'),{'message_id':7}])
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'0'}), \
+             patch('api.index.CloudMemory',return_value=mem), \
+             patch('api.index.reply_text',return_value='Tarefa salva') as reply, \
+             patch('api.index.telegram_call',sent):
+            first=self.client.post('/api/telegram',json=self._fixture(141),headers={
+                'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+            second=self.client.post('/api/telegram',json=self._fixture(141),headers={
+                'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(first.status_code,503)
+        self.assertEqual(second.status_code,200)
+        self.assertTrue(second.json().get('resumed'))
+        reply.assert_called_once()
+        mem.stage_reply.assert_called_once_with(141,'Tarefa salva')
+        mem.confirm_legacy_sent.assert_called_once_with(141)
+        self.assertEqual(sent.call_count,2)
+        mem.finish_update.assert_not_called()
+        mem.mark_delivered.assert_not_called()
+
+    def test_legacy_persistence_failure_never_sends(self):
+        from unittest.mock import MagicMock
+        mem=MagicMock()
+        mem.claim_update.return_value=True
+        mem.stage_reply.side_effect=RuntimeError('DB temporarily unavailable')
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'0'}), \
+             patch('api.index.CloudMemory',return_value=mem), \
+             patch('api.index.reply_text',return_value='Resposta') as reply, \
+             patch('api.index.telegram_call') as send:
+            result=self.client.post('/api/telegram',json=self._fixture(142),headers={
+                'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(result.status_code,503)
+        reply.assert_called_once()
+        send.assert_not_called()
+        mem.confirm_legacy_sent.assert_not_called()
+
+    def test_legacy_duplicate_after_processed_never_resends(self):
+        from unittest.mock import MagicMock
+        mem=MagicMock()
+        mem.claim_update.return_value=False
+        mem.get_update.return_value={'status':'processed','response':'Resposta'}
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'0'}), \
+             patch('api.index.CloudMemory',return_value=mem), \
+             patch('api.index.reply_text') as reply, \
+             patch('api.index.telegram_call') as send:
+            result=self.client.post('/api/telegram',json=self._fixture(143),headers={
+                'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(result.status_code,200)
+        self.assertTrue(result.json().get('duplicate'))
+        reply.assert_not_called()
+        send.assert_not_called()
+
+    def test_v2_can_replay_pending_legacy_reply_on_migration(self):
+        from unittest.mock import MagicMock
+        mem=MagicMock()
+        mem.claim_update.return_value=False
+        mem.get_update.return_value={'status':'replied','response':'Resposta legada'}
+        mem.mark_delivered.return_value=True
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'1'}), \
+             patch('api.index.CloudMemory',return_value=mem), \
+             patch('api.index.reply_text') as reply, \
+             patch('api.index.telegram_call') as send:
+            result=self.client.post('/api/telegram',json=self._fixture(144),headers={
+                'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(result.status_code,200)
+        self.assertTrue(result.json().get('replayed'))
+        reply.assert_not_called()
+        send.assert_called_once()
+        mem.confirm_legacy_sent.assert_called_once_with(144)
+        mem.mark_delivered.assert_called_once_with(144)
+        mem.finish_update.assert_not_called()
+
+    def test_received_without_answer_remains_pending(self):
+        from unittest.mock import MagicMock
+        mem=MagicMock()
+        mem.claim_update.return_value=False
+        mem.get_update.return_value={'status':'received','response':None}
+        with patch.dict(os.environ,{**self.config,'ORBITA_WEBHOOK_DELIVERY_V2_ENABLED':'0'}), \
+             patch('api.index.CloudMemory',return_value=mem), \
+             patch('api.index.reply_text') as reply, \
+             patch('api.index.telegram_call') as send:
+            result=self.client.post('/api/telegram',json=self._fixture(145),headers={
+                'X-Telegram-Bot-Api-Secret-Token':'test-secret'})
+        self.assertEqual(result.status_code,200)
+        self.assertTrue(result.json().get('pending'))
+        reply.assert_not_called()
+        send.assert_not_called()
 
     def test_another_user_ignored_even_with_valid_secret(self):
         update={'update_id':7,'message':{'chat':{'id':111,'type':'private'},'from':{'id':111},'text':'Olá'}}
