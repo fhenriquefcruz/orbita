@@ -203,19 +203,49 @@ class CloudMemory:
             prefer="resolution=ignore-duplicates,return=representation")
         return bool(rows)
 
-    def finish_update(self, update_id: int, answer: str) -> None:
-        """Guarda resposta antes de enviar. Falha fechada se não houver linha alterada."""
+    def stage_reply(self, update_id: int, answer: str) -> None:
+        """Modo legado: persiste resposta em 'replied' ANTES de sendMessage.
+
+        Mantém compatibilidade com a migração 003 já aplicada em produção;
+        permite recuperar envio falho sem repetir /tarefa nem outras ações.
+        """
         if not isinstance(answer, str) or not answer.strip():
-            raise ValueError("Resposta vazia não pode ser marcada como processada")
+            raise ValueError("Resposta vazia nao pode ser enviada")
         rows = self._call("orbita_telegram_updates", "PATCH", query={
-            "update_id": "eq." + str(int(update_id)), "user_id": "eq." + self.user_id,
+            "update_id": "eq." + str(int(update_id)),
+            "user_id": "eq." + self.user_id,
             "status": "eq.received",
-        }, value={"status": "processed", "response": answer[:4000]},
+        }, value={"status": "replied", "response": answer[:3900]},
             prefer="return=representation")
         if (not isinstance(rows, list) or len(rows) != 1 or
                 rows[0].get("update_id") != int(update_id) or
+                rows[0].get("status") != "replied"):
+            raise RuntimeError("Resposta legada nao foi persistida para reenvio")
+
+    def finish_update(self, update_id: int, answer: str | None = None) -> None:
+        """Confirma modo legado apos envio, ou prepara fila no modo v2.
+
+        Sem answer: replied -> processed (legado, apos sendMessage).
+        Com answer: received -> processed (v2, antes de sendMessage).
+        O modo v2 requer entrega explicitamente habilitada e SQL 003 homologado.
+        """
+        if answer is None:
+            from_status = "replied"
+            value = {"status": "processed"}
+        else:
+            if not isinstance(answer, str) or not answer.strip():
+                raise ValueError("Resposta vazia nao pode ser marcada como processada")
+            from_status = "received"
+            value = {"status": "processed", "response": answer[:4000]}
+        rows = self._call("orbita_telegram_updates", "PATCH", query={
+            "update_id": "eq." + str(int(update_id)),
+            "user_id": "eq." + self.user_id,
+            "status": "eq." + from_status,
+        }, value=value, prefer="return=representation")
+        if (not isinstance(rows, list) or len(rows) != 1 or
+                rows[0].get("update_id") != int(update_id) or
                 rows[0].get("status") != "processed"):
-            raise RuntimeError("Resposta não foi persistida na fila Telegram")
+            raise RuntimeError("Resposta Telegram nao teve transicao confirmada")
 
     def mark_delivered(self, update_id: int) -> bool:
         """Marca entrega após sendMessage retornar sucesso (somente schema v3.20)."""
