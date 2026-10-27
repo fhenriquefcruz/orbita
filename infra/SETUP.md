@@ -1,6 +1,6 @@
 # ORBITA 3.0 — Infraestrutura: guia de ativação segura
 
-> **Estado verificado em 24/10/2026:** projeto Supabase exclusivo `orbita` já existe, com as três tabelas base e RLS ativos. Login Auth, integração com Telegram e deploy continuam sem homologação E2E. Migrações opcionais 002/003 estão versionadas, mas NÃO aplicadas. Nunca usar bancos de outros projetos.
+> **Estado em 26/10/2026:** projeto exclusivo `orbita` e RLS ativos, duas contas Auth reais e isolamento HTTP de registros/chat aprovados. As migrações históricas **002_least_privilege** e **003_telegram_reply_delivery** já constam do banco; **002_action_proposals** e **003_telegram_delivery** são propostas diferentes e ainda NÃO foram aplicadas. Backup recuperável, recuperação de senha/Safari e webhook real continuam pendentes. Nunca utilizar bancos de outros projetos.
 
 ## Arquitetura
 
@@ -53,4 +53,4 @@ A execução acima não equivale a teste E2E com Supabase/Telegram reais. Valida
 - Com duas contas independentes e RLS, garantir que leituras, gravações e exclusões cruzadas são negadas no Supabase, independentemente da proteção visual.
 - Executar `python quality/browser_smoke.py` com Playwright e Chromium instalados. O mock só testa interface/fluxos; **não** substitui autenticação e isolamento RLS reais.
 
-**Ativação bloqueada:** o projeto Supabase exclusivo está acessível, mas não passou pelos testes Auth/RLS HTTP reais, SQL 002/003, recuperação de senha, Safari/iPhone e Telegram em produção. Ativação das flags privadas `ORBITA_NATURAL_ACTIONS_ENABLED` e `ORBITA_WEBHOOK_DELIVERY_V2_ENABLED` exige homologação individual. A branch `main` permanece preservada.
+**Ativação bloqueada:** o projeto exclusivo já passou nos testes reais HTTP de isolamento Auth/RLS entre duas contas, mas falta backup validado por **restauração isolada**, migrações opcionais 002_action_proposals / 003_telegram_delivery, recuperação de senha, Safari/iPhone e Telegram em produção. As flags `ORBITA_NATURAL_ACTIONS_ENABLED` e `ORBITA_WEBHOOK_DELIVERY_V2_ENABLED` continuam OFF por padrão. A branch `main` permanece preservada até autorização expressa de publicação.
