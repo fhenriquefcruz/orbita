@@ -143,6 +143,44 @@ class TestCloudMemory(unittest.TestCase):
             self.assertFalse(self.mem.complete(5,17))
         self.assertEqual(len(calls), 2)
 
+    def test_legacy_stage_reply_requires_exact_row_and_status(self):
+        with patch.object(self.mem,'_call',return_value=[
+                {'update_id':148,'status':'replied'}]) as caller:
+            self.mem.stage_reply(148,'Mensagem salva')
+            self.assertEqual(caller.call_args.kwargs['query']['status'],'eq.received')
+            self.assertEqual(caller.call_args.kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(caller.call_args.kwargs['value'],
+                             {'status':'replied','response':'Mensagem salva'})
+            self.assertEqual(caller.call_args.kwargs['prefer'],'return=representation')
+        for rows in ([],[{'update_id':999,'status':'replied'}],
+                     [{'update_id':148,'status':'received'}]):
+            with self.subTest(rows=rows):
+                with patch.object(self.mem,'_call',return_value=rows):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.stage_reply(148,'Mensagem salva')
+
+    def test_legacy_finish_after_send_only_from_replied(self):
+        with patch.object(self.mem,'_call',return_value=[
+                {'update_id':149,'status':'processed'}]) as caller:
+            self.mem.finish_update(149)
+            self.assertEqual(caller.call_args.kwargs['query']['status'],'eq.replied')
+            self.assertEqual(caller.call_args.kwargs['value'],{'status':'processed'})
+            self.assertEqual(caller.call_args.kwargs['prefer'],'return=representation')
+        for rows in ([],[{'update_id':999,'status':'processed'}],
+                     [{'update_id':149,'status':'replied'}]):
+            with self.subTest(rows=rows):
+                with patch.object(self.mem,'_call',return_value=rows):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.finish_update(149)
+
+    def test_legacy_rejects_blank_reply_without_database_write(self):
+        for invalid in ('', '  ', None):
+            with self.subTest(invalid=invalid):
+                with patch.object(self.mem,'_call') as caller:
+                    with self.assertRaises(ValueError):
+                        self.mem.stage_reply(150,invalid)
+                    caller.assert_not_called()
+
     def test_finish_update_requires_verified_persistence(self):
         row={'update_id':135,'status':'processed'}
         with patch.object(self.mem,'_call',return_value=[row]) as call:
