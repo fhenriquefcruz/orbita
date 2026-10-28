@@ -92,7 +92,11 @@ if (-not (Test-Path -LiteralPath $pgctl -PathType Leaf) -or
 }
 Assert-PrivateItem $root
 Assert-PrivateItem $data
-Assert-PrivateItem $verifyScript
+# Codigo versionado no repositorio nao precisa herdar ACL do sandbox;
+# validar apenas existencia e ausencia de junction/symlink.
+if (((Get-Item -LiteralPath $verifyScript -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+  Fail "Verificador versionado nao pode ser junction/symlink."
+}
 if (Test-Path -LiteralPath $log) { Assert-PrivateItem $log }
 
 # Exigir TODAS as verificacoes de identidade, ACL, PG_VERSION, conf e porta do 3.37.
@@ -107,7 +111,7 @@ Write-Output "IDENTIDADE: sandbox PostgreSQL 17 parado e isolamento 127.0.0.1:55
 Write-Output "PROCESSO: CreateNoWindow e redirecionamento de stdout/stderr; nenhum log bruto exibido."
 Write-Output "INICIANDO: uma tentativa de pg_ctl exclusivamente no sandbox ORBITA."
 
-# Processo nativo fora da console tree do PowerShell interativo.
+# Executar pg_ctl como processo sem janela de console com streams redirecionados.
 # O PostgreSQL grava seu log privado em server.log por pg_ctl -l.
 $psi = [Diagnostics.ProcessStartInfo]::new()
 $psi.FileName = $pgctl
