@@ -1,4 +1,4 @@
-# ORBITA Aurora 3.39 | Evidencias sanitizadas de server.log e destinos declarados.
+# ORBITA Aurora 3.40 | Evidencias sanitizadas de server.log e destinos declarados.
 # SOMENTE LEITURA. Nao executa SQL, pg_ctl, start/stop, pg_restore ou conexoes.
 # Nunca imprime linhas, mensagens, caminhos ou timestamps brutos do log.
 [CmdletBinding()]
@@ -64,7 +64,7 @@ if ($SelfTest) {
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   Fail "Exige Windows para analisar o sandbox privado."
 }
-Write-Output "=== ORBITA 3.39 | EVIDENCIA DE LOG (SOMENTE LEITURA) ==="
+Write-Output "=== ORBITA 3.40 | EVIDENCIA DE LOG (SOMENTE LEITURA) ==="
 if (-not (Test-Path -LiteralPath $root -PathType Container)) {
   Fail "Sandbox ORBITA ausente; nenhuma acao realizada."
 }
@@ -105,9 +105,9 @@ if (Test-Path -LiteralPath $current) {
 } else {
   Write-Output "CURRENT_LOGFILES: AUSENTE."
 }
-$pid = Join-Path $data "postmaster.pid"
-if (Test-Path -LiteralPath $pid) {
-  Assert-PrivateItem $pid $false
+$postmasterPidFile = Join-Path $data "postmaster.pid"
+if (Test-Path -LiteralPath $postmasterPidFile) {
+  Assert-PrivateItem $postmasterPidFile $false
   Write-Output "POSTMASTER_PID: ARQUIVO_PRESENTE (nao comprova processo ativo)."
 } else {
   Write-Output "POSTMASTER_PID: ARQUIVO_AUSENTE."
