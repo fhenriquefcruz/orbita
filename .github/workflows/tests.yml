@@ -69,7 +69,8 @@ jobs:
             ".\\quality\\private_restore_native_windows_preflight.ps1",
             ".\\quality\\private_restore_native_windows_cluster.ps1",
             ".\\quality\\private_restore_archive_inventory_windows.ps1",
-            ".\\quality\\private_restore_native_windows_verify.ps1"
+            ".\\quality\\private_restore_native_windows_verify.ps1",
+            ".\\quality\\private_restore_native_windows_diagnose.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -173,6 +174,22 @@ jobs:
             throw "Protecao de inventario/identidade local ausente."
           }
           Write-Output "Aurora 3.37: analisadores offline OK, sem backup ou cluster de CI."
+      - name: Diagnosticar start transitorio com logs sinteticos e sem expor dados
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_diagnose.ps1"
+          $results = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($results -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste de classificacao sanitizada falhou."
+          }
+          $source = Get-Content $script -Raw
+          if ($source -notmatch 'Get-Content -LiteralPath \$log -Tail 300' -or
+              $source -notmatch 'Get-EventCategory' -or
+              $source -match '(?m)^\s*(?:pg_restore|dropdb|initdb|createdb|pg_ctl start)\s') {
+            throw "Guardas de privacidade/leitura do diagnostico ausentes."
+          }
+          Write-Output "Diagnostico de inicio/encerramento validado sem revelar logs."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
