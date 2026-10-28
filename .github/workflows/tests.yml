@@ -70,7 +70,8 @@ jobs:
             ".\\quality\\private_restore_native_windows_cluster.ps1",
             ".\\quality\\private_restore_archive_inventory_windows.ps1",
             ".\\quality\\private_restore_native_windows_verify.ps1",
-            ".\\quality\\private_restore_native_windows_diagnose.ps1"
+            ".\\quality\\private_restore_native_windows_diagnose.ps1",
+            ".\\quality\\private_restore_native_windows_log_evidence.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -190,6 +191,24 @@ jobs:
             throw "Guardas de privacidade/leitura do diagnostico ausentes."
           }
           Write-Output "Diagnostico de inicio/encerramento validado sem revelar logs."
+      - name: Validar evidencia de log Aurora 3.39 com dados sinteticos
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_log_evidence.ps1"
+          $result = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($result -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Falha no classificador offline 3.39."
+          }
+          $source = Get-Content $script -Raw
+          if ($source -notmatch 'Assert-PrivateItem' -or
+              $source -notmatch 'Get-Content -LiteralPath \$log -Tail 300' -or
+              $source -notmatch 'Get-LogCategory' -or
+              $source -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_ctl|pg_restore|initdb|dropdb|createdb|psql|postgres)\s') {
+            throw "Guardas de privacidade/nao escrita do diagnostico 3.39 falharam."
+          }
+          Write-Output "Aurora 3.39: classificador sintetico e leitura limitada aprovados."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
