@@ -120,17 +120,7 @@ if (-not $supabaseReady -and $npx) {
     $ErrorActionPreference = $oldPreference
   }
   $versionLine = ($npxVersion -join " ").Trim()
-  if ($npxExit -eq 0 -and $versionLine -match '^\\d+\\.\\d+\\.\\d+
-
-Write-Output "=== RESULTADO ==="
-if ($pgReady -and $dockerReady -and $supabaseReady) {
-  Write-Output "PRE-REQUISITOS LOCAIS PRESENTES - ensaio de restauracao AINDA NAO EXECUTADO."
-} else {
-  Write-Output "PRE-REQUISITOS INCOMPLETOS - planejar ambiente de teste antes de restaurar."
-}
-Write-Output "SEGURANCA: este script nao abriu o dump para restaurar, nao executou SQL, nao criou containers e nao conectou a producao."
-Write-Output "BLOQUEIO: migracoes novas 002/003 e release continuam pendentes de recuperacao comprovada."
-) {
+  if ($npxExit -eq 0 -and $versionLine -match '^\d+\.\d+\.\d+$') {
     $supabaseReady = $true
     $cliSource = "cache local npx.cmd"
   }
