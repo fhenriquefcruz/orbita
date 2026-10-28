@@ -106,7 +106,7 @@ catch { Fail "Preflight de identidade do sandbox falhou; nenhuma inicializacao."
 if (-not (Test-VerifiedStopped $before)) {
   Fail "Preflight nao confirmou sandbox parado e exclusivo; nenhuma inicializacao."
 }
-Write-Output "=== ORBITA 3.44 | START SEM CONSOLE — SOMENTE 55432 ==="
+Write-Output "=== ORBITA 3.44 | START SEM CONSOLE - SOMENTE 55432 ==="
 Write-Output "IDENTIDADE: sandbox PostgreSQL 17 parado e isolamento 127.0.0.1:55432 aprovado."
 Write-Output "PROCESSO: CreateNoWindow e redirecionamento de stdout/stderr; nenhum log bruto exibido."
 Write-Output "INICIANDO: uma tentativa de pg_ctl exclusivamente no sandbox ORBITA."
