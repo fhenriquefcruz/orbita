@@ -82,6 +82,9 @@ jobs:
               (Resolve-Path -LiteralPath $file).Path, [ref]$tokens, [ref]$errors
             ) | Out-Null
             if ($errors.Count -gt 0) {
+              foreach ($parseError in $errors) {
+                Write-Output ("PARSER: line=" + $parseError.Extent.StartLineNumber + "; id=" + $parseError.ErrorId)
+              }
               throw "Falha de sintaxe no script de backup $file."
             }
             Write-Output "PowerShell 5.1: sintaxe validada"
