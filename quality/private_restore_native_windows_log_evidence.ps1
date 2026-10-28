@@ -1,4 +1,4 @@
-# ORBITA Aurora 3.41 | Evidencias sanitizadas de server.log e destinos declarados.
+# ORBITA Aurora 3.42 | Evidencias sanitizadas de server.log e destinos declarados.
 # SOMENTE LEITURA. Nao executa SQL, pg_ctl, start/stop, pg_restore ou conexoes.
 # Nunca imprime linhas, mensagens, caminhos ou timestamps brutos do log.
 [CmdletBinding()]
@@ -28,7 +28,14 @@ function Get-LogCategory([string]$line) {
   if ($line -match '(?i)\bERROR\s*:') { return "ERROR" }
   if ($line -match '(?i)database system is ready to accept connections|sistema de banco de dados.{0,50}pront.{0,50}conex') { return "PRONTIDAO" }
   if ($line -match '(?i)received (fast|smart|immediate) shutdown request|solicita.{0,40}desligamento') { return "PEDIDO_DESLIGAMENTO" }
-  if ($line -match '(?i)database system is shutting down') { return "ENCERRANDO" }
+  # Detecta a forma curta real do PostgreSQL 17: "LOG: shutting down".
+  if ($line -match '(?i)database system is shutting down|\bLOG\s*:\s*shutting down\b') { return "ENCERRANDO" }
+  # Códigos/expressões fixos; nao retornamos o conteudo da linha.
+  if ($line -match '(?i)background worker.*terminated by exception\s+0xC000013A') { return "EXCECAO_CONSOLE" }
+  if ($line -match '(?i)background worker.*terminated by exception') { return "EXCECAO_PROCESSO" }
+  if ($line -match '(?i)terminating any other active server processes') { return "PROCESSOS_ENCERRADOS" }
+  if ($line -match '(?i)all server processes terminated; reinitializing') { return "PROCESSOS_REINICIANDO" }
+  if ($line -match '(?i)database system was not properly shut down|database system was interrupted') { return "RECUPERACAO_APOS_QUEDA" }
   if ($line -match '(?i)checkpoint starting: shutdown') { return "CHECKPOINT_DESLIGAMENTO" }
   if ($line -match '(?i)database system is shut down|sistema de banco de dados.{0,25}(?:desligad|encerrad)') { return "DESLIGAMENTO" }
   if ($line -match '(?i)\bLOG\s*:|\bWARNING\s*:|\bAVISO\s*:') { return "REGISTRO_GERAL" }
@@ -37,7 +44,7 @@ function Get-LogCategory([string]$line) {
 # Retorna APENAS posicao relativa e categoria em enumeracao fechada.
 # Nenhum trecho do arquivo privado e retornado.
 function Get-Milestones([string[]]$sourceLines) {
-  $relevant = @("PRONTIDAO","PEDIDO_DESLIGAMENTO","ENCERRANDO","CHECKPOINT_DESLIGAMENTO","DESLIGAMENTO","PANIC","FATAL","ERROR")
+  $relevant = @("PRONTIDAO","PEDIDO_DESLIGAMENTO","ENCERRANDO","CHECKPOINT_DESLIGAMENTO","DESLIGAMENTO","PANIC","FATAL","ERROR","EXCECAO_CONSOLE","EXCECAO_PROCESSO","PROCESSOS_ENCERRADOS","PROCESSOS_REINICIANDO","RECUPERACAO_APOS_QUEDA")
   for ($lineIndex = 0; $lineIndex -lt $sourceLines.Count; $lineIndex++) {
     $kind = Get-LogCategory ([string]$sourceLines[$lineIndex])
     if ($relevant -contains $kind) {
@@ -69,14 +76,17 @@ if ($SelfTest) {
       (Get-LogCategory "2026 LOG: usuario privado") -cne "REGISTRO_GERAL" -or
       (Get-LogCategory "user@example.test SQL privado") -cne "" -or
       (Get-LogCategory "LOG: database system is shutting down") -cne "ENCERRANDO" -or
-      (Get-LogCategory "LOG: checkpoint starting: shutdown immediate") -cne "CHECKPOINT_DESLIGAMENTO") {
+      (Get-LogCategory "LOG: checkpoint starting: shutdown immediate") -cne "CHECKPOINT_DESLIGAMENTO" -or
+      (Get-LogCategory "LOG: shutting down") -cne "ENCERRANDO" -or
+      (Get-LogCategory "LOG: background worker logical replication launcher (PID 999) was terminated by exception 0xC000013A") -cne "EXCECAO_CONSOLE" -or
+      (Get-LogCategory "LOG: database system was not properly shut down; automatic recovery in progress") -cne "RECUPERACAO_APOS_QUEDA") {
     Fail "Autoteste de classificacao/privacidade falhou."
   }
   $synthetic = @(
     "2026 LOG: database system is ready to accept connections",
     "2026 LOG: received fast shutdown request",
+    "2026 LOG: shutting down",
     "2026 LOG: checkpoint starting: shutdown immediate",
-    "2026 LOG: database system is shutting down",
     "2026 LOG: database system is shut down",
     "usuario@example.test documento privado"
   )
@@ -87,14 +97,27 @@ if ($SelfTest) {
       @($marks | Where-Object { $_.Kind -match '@|usuario|documento' }).Count -ne 0) {
     Fail "Autoteste de ordem de marcos, exclusao de dados e privacidade falhou."
   }
-  Write-Output "AUTOTESTE APROVADO: marcos em ordem, categorias fixas, nenhum arquivo real."
+  # Não há hipótese de pedido apenas pelo texto "shutdown immediate" do checkpoint.
+  $cleanSequence = @(
+    "LOG: database system is ready to accept connections",
+    "LOG: shutting down",
+    "LOG: checkpoint starting: shutdown immediate",
+    "LOG: database system is shut down"
+  )
+  $cleanMarks = @(Get-Milestones $cleanSequence)
+  if ($cleanMarks.Count -ne 4 -or
+      $cleanMarks[1].Kind -cne "ENCERRANDO" -or
+      @($cleanMarks | Where-Object { $_.Kind -eq "PEDIDO_DESLIGAMENTO" }).Count -ne 0) {
+    Fail "Autoteste de desligamento normal e pedido separado falhou."
+  }
+  Write-Output "AUTOTESTE APROVADO: marcos, shutdown curto e categorias seguras sem arquivo real."
   exit 0
 }
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   Fail "Exige Windows para analisar o sandbox privado."
 }
-Write-Output "=== ORBITA 3.41 | SEQUENCIA DE LOG (SOMENTE LEITURA) ==="
+Write-Output "=== ORBITA 3.42 | CICLO DE DESLIGAMENTO (SOMENTE LEITURA) ==="
 if (-not (Test-Path -LiteralPath $root -PathType Container)) {
   Fail "Sandbox ORBITA ausente; nenhuma acao realizada."
 }
@@ -187,6 +210,14 @@ if (-not (Test-Path -LiteralPath $log -PathType Leaf)) {
           } else {
             Write-Output "PEDIDO_RECONHECIDO_ENTRE_MARCOS: NAO"
           }
+          $consoleIndicators = @($milestones | Where-Object {
+            $_.Kind -eq "EXCECAO_CONSOLE" -and
+            $_.Position -gt $lastReadiness[0].Position -and
+            $_.Position -le $lastShutdown[0].Position
+          })
+          Write-Output ("EXCECAO_CONSOLE_RECONHECIDA_ENTRE_MARCOS: " + $(if ($consoleIndicators.Count -gt 0) { "SIM" } else { "NAO" }))
+          Write-Output "INTERPRETACAO: pedido/indicador NAO reconhecido nunca comprova ausencia do evento real."
+          Write-Output "CHECKPOINT shutdown immediate NAO comprova parada abrupta."
         } else {
           Write-Output "ORDEM: ULTIMA_PRONTIDAO_APOS_ULTIMO_DESLIGAMENTO"
         }
