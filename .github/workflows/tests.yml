@@ -231,6 +231,17 @@ jobs:
             throw "Colisao com variavel automatica de PowerShell no diagnostico 3.40."
           }
           Write-Output "Aurora 3.40: verificacao AST contra variaveis automaticas reservadas aprovada."
+          # Regressao 3.41: a leitura nunca devolve conteudo bruto ou timestamps.
+          if ($source -notmatch 'Get-Milestones' -or
+              $source -notmatch 'MARCOS_RELEVANTES' -or
+              $source -notmatch 'PEDIDO_RECONHECIDO_ENTRE_MARCOS' -or
+              $source -notmatch 'Get-Content -LiteralPath \$log -Tail 300' -or
+              $source -notmatch 'AVISO: ausencia de categoria' -or
+              $source -match '(?m)^\s*(?:Write-Output|Write-Host)\s+\$line\b' -or
+              $source -match '(?m)^\s*(?:Write-Output|Write-Host)\s+\$lines\b') {
+            throw "Protecoes de sequencia e sigilo da Aurora 3.41 ausentes."
+          }
+          Write-Output "Aurora 3.41: ordem sintetica e redacao de log aprovadas."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
