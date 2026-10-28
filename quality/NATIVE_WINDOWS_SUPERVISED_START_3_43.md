@@ -25,6 +25,30 @@ Novo arquivo `quality/private_restore_native_windows_stability.ps1`:
 - Se qualquer verificacao nao confirmar `ATIVO_ISOLADO`, interrompe e NAO reinicia automaticamente.
 - Na CI Windows, `-SelfTest` usa apenas texto sintetico. A CI nunca executa `-Observe` e jamais faz start em sandbox.
 
+## Pre-gate Windows: politica de execucao na sessao interativa
+
+**Incidente real (28/10/2026):** apos atualizar o codigo ate `8526715`, o Windows recusou TODAS as chamadas diretas com `& ".\\quality\\...ps1"`, incluindo `-SelfTest`, `-Check`, `verify`, `-Start` e `-Observe`, com `PSSecurityException: UnauthorizedAccess` / "execucao de scripts foi desabilitada neste sistema". **Nenhum desses scripts chegou a executar; a tentativa de start foi bloqueada pela politica antes de invocar o gerenciador.** O Git pull nao altera a politica de execucao.
+
+No **mesmo PowerShell interativo** que permanecera aberto, consultar politica e, somente se as politicas `MachinePolicy` e `UserPolicy` nao estiverem impostas, usar `RemoteSigned` restrito ao processo atual:
+
+```powershell
+Get-ExecutionPolicy -List
+$enforced = @(Get-ExecutionPolicy -List | Where-Object {
+  $_.Scope -in @("MachinePolicy", "UserPolicy") -and $_.ExecutionPolicy -ne "Undefined"
+})
+if ($enforced.Count -gt 0) { throw "Politica de grupo imposta: nao contornar." }
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned -Force
+if ((Get-ExecutionPolicy) -ne "RemoteSigned") {
+  throw "Politica efetiva nao e RemoteSigned; interromper Gate A e Gate B."
+}
+```
+
+`-Scope Process` vale somente para essa sessao, sem alterar politica permanente no Registro; ao encerrar o PowerShell, o ajuste deixa de valer. `RemoteSigned` nao equivale a `Bypass`. Nao usar `Unrestricted`, `Bypass`, `LocalMachine`, `CurrentUser` ou `Unblock-File` para contornar controles corporativos. Em maquinas gerenciadas, solicitar revisao ao administrador se a politica de grupo bloquear os scripts.
+
+**Atencao:** na falha do Gate A, NAO executar Gate B. O fato de o `git pull` funcionar nao comprova execucao de nenhum script. Se `-Check` ou `verify` falhar, parar sem tentar `-Start`. O Gate B exige aprovacao explícita do operador, ate quando a politica foi corrigida.
+
+Referencia: [Microsoft Learn — about_Execution_Policies, Windows PowerShell 5.1](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1).
+
 ## Executar no Windows — dois gates distintos
 
 **Gate A: somente leitura** (antes de qualquer partida). No PowerShell interativo ja aberto, **nao** invocar um novo `powershell.exe -File` para iniciar o servidor:
