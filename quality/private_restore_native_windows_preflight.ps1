@@ -103,8 +103,15 @@ try {
 $listenOk = $false
 try {
   $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 5432,55432 -ErrorAction SilentlyContinue)
+  $hasWildcard = $false
   foreach ($listener in $listeners) {
     Write-Output ("PORTA OCUPADA: {0}:{1} (nao modificar)." -f $listener.LocalAddress,$listener.LocalPort)
+    if ($listener.LocalAddress -eq "0.0.0.0" -or $listener.LocalAddress -eq "::") {
+      $hasWildcard = $true
+    }
+  }
+  if ($hasWildcard) {
+    Write-Output "ATENCAO: listener em 0.0.0.0/::; isolamento de rede NAO COMPROVADO; revisar firewall e pg_hba.conf antes de usar dados privados."
   }
   if ($listeners.Count -eq 0) {
     Write-Output "PORTAS 5432/55432: SEM LISTENERS DETECTADOS (nao prova reserva de porta)."
