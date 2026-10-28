@@ -1,4 +1,4 @@
-# ORBITA Aurora 3.40 | Evidencias sanitizadas de server.log e destinos declarados.
+# ORBITA Aurora 3.41 | Evidencias sanitizadas de server.log e destinos declarados.
 # SOMENTE LEITURA. Nao executa SQL, pg_ctl, start/stop, pg_restore ou conexoes.
 # Nunca imprime linhas, mensagens, caminhos ou timestamps brutos do log.
 [CmdletBinding()]
@@ -28,9 +28,22 @@ function Get-LogCategory([string]$line) {
   if ($line -match '(?i)\bERROR\s*:') { return "ERROR" }
   if ($line -match '(?i)database system is ready to accept connections|sistema de banco de dados.{0,50}pront.{0,50}conex') { return "PRONTIDAO" }
   if ($line -match '(?i)received (fast|smart|immediate) shutdown request|solicita.{0,40}desligamento') { return "PEDIDO_DESLIGAMENTO" }
+  if ($line -match '(?i)database system is shutting down') { return "ENCERRANDO" }
+  if ($line -match '(?i)checkpoint starting: shutdown') { return "CHECKPOINT_DESLIGAMENTO" }
   if ($line -match '(?i)database system is shut down|sistema de banco de dados.{0,25}(?:desligad|encerrad)') { return "DESLIGAMENTO" }
   if ($line -match '(?i)\bLOG\s*:|\bWARNING\s*:|\bAVISO\s*:') { return "REGISTRO_GERAL" }
   return ""
+}
+# Retorna APENAS posicao relativa e categoria em enumeracao fechada.
+# Nenhum trecho do arquivo privado e retornado.
+function Get-Milestones([string[]]$sourceLines) {
+  $relevant = @("PRONTIDAO","PEDIDO_DESLIGAMENTO","ENCERRANDO","CHECKPOINT_DESLIGAMENTO","DESLIGAMENTO","PANIC","FATAL","ERROR")
+  for ($lineIndex = 0; $lineIndex -lt $sourceLines.Count; $lineIndex++) {
+    $kind = Get-LogCategory ([string]$sourceLines[$lineIndex])
+    if ($relevant -contains $kind) {
+      [pscustomobject]@{ Position = ($lineIndex + 1); Kind = $kind }
+    }
+  }
 }
 function Assert-PrivateItem([string]$path,[bool]$protected) {
   if (-not (Test-Path -LiteralPath $path)) { Fail "Item obrigatorio do sandbox ausente." }
@@ -54,17 +67,34 @@ if ($SelfTest) {
       (Get-LogCategory "2026 LOG: received fast shutdown request") -cne "PEDIDO_DESLIGAMENTO" -or
       (Get-LogCategory "2026 FATAL: segredo=user@example.test") -cne "FATAL" -or
       (Get-LogCategory "2026 LOG: usuario privado") -cne "REGISTRO_GERAL" -or
-      (Get-LogCategory "user@example.test SQL privado") -cne "") {
+      (Get-LogCategory "user@example.test SQL privado") -cne "" -or
+      (Get-LogCategory "LOG: database system is shutting down") -cne "ENCERRANDO" -or
+      (Get-LogCategory "LOG: checkpoint starting: shutdown immediate") -cne "CHECKPOINT_DESLIGAMENTO") {
     Fail "Autoteste de classificacao/privacidade falhou."
   }
-  Write-Output "AUTOTESTE APROVADO: somente categorias fixas, nenhum arquivo real."
+  $synthetic = @(
+    "2026 LOG: database system is ready to accept connections",
+    "2026 LOG: received fast shutdown request",
+    "2026 LOG: checkpoint starting: shutdown immediate",
+    "2026 LOG: database system is shutting down",
+    "2026 LOG: database system is shut down",
+    "usuario@example.test documento privado"
+  )
+  $marks = @(Get-Milestones $synthetic)
+  if ($marks.Count -ne 5 -or $marks[0].Position -ne 1 -or
+      $marks[1].Kind -cne "PEDIDO_DESLIGAMENTO" -or
+      $marks[4].Position -ne 5 -or $marks[4].Kind -cne "DESLIGAMENTO" -or
+      @($marks | Where-Object { $_.Kind -match '@|usuario|documento' }).Count -ne 0) {
+    Fail "Autoteste de ordem de marcos, exclusao de dados e privacidade falhou."
+  }
+  Write-Output "AUTOTESTE APROVADO: marcos em ordem, categorias fixas, nenhum arquivo real."
   exit 0
 }
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
   Fail "Exige Windows para analisar o sandbox privado."
 }
-Write-Output "=== ORBITA 3.40 | EVIDENCIA DE LOG (SOMENTE LEITURA) ==="
+Write-Output "=== ORBITA 3.41 | SEQUENCIA DE LOG (SOMENTE LEITURA) ==="
 if (-not (Test-Path -LiteralPath $root -PathType Container)) {
   Fail "Sandbox ORBITA ausente; nenhuma acao realizada."
 }
@@ -136,6 +166,34 @@ if (-not (Test-Path -LiteralPath $log -PathType Leaf)) {
       Write-Output ("LINHAS_INSPECIONADAS: " + $lines.Count)
       Write-Output ("LINHAS_NAO_VAZIAS: " + $nonempty)
       Write-Output ("EVENTOS_CLASSIFICADOS: " + $categories.Count)
+      # Ordem relativa dos eventos especificos, sem timestamps nem conteudo bruto.
+      $milestones = @(Get-Milestones $lines)
+      Write-Output ("MARCOS_RELEVANTES: " + $milestones.Count)
+      foreach ($milestone in @($milestones | Select-Object -Last 12)) {
+        Write-Output ("MARCO: POS_" + $milestone.Position + " " + $milestone.Kind)
+      }
+      $lastReadiness = @($milestones | Where-Object { $_.Kind -eq "PRONTIDAO" } | Select-Object -Last 1)
+      $lastShutdown = @($milestones | Where-Object { $_.Kind -eq "DESLIGAMENTO" } | Select-Object -Last 1)
+      if ($lastReadiness.Count -gt 0 -and $lastShutdown.Count -gt 0) {
+        if ($lastReadiness[0].Position -lt $lastShutdown[0].Position) {
+          Write-Output "ORDEM: PRONTIDAO_ANTES_DO_ULTIMO_DESLIGAMENTO"
+          $requestsInWindow = @($milestones | Where-Object {
+            $_.Kind -eq "PEDIDO_DESLIGAMENTO" -and
+            $_.Position -gt $lastReadiness[0].Position -and
+            $_.Position -le $lastShutdown[0].Position
+          })
+          if ($requestsInWindow.Count -gt 0) {
+            Write-Output "PEDIDO_RECONHECIDO_ENTRE_MARCOS: SIM"
+          } else {
+            Write-Output "PEDIDO_RECONHECIDO_ENTRE_MARCOS: NAO"
+          }
+        } else {
+          Write-Output "ORDEM: ULTIMA_PRONTIDAO_APOS_ULTIMO_DESLIGAMENTO"
+        }
+      } else {
+        Write-Output "ORDEM: INSUFICIENTE_PARA_COMPARACAO"
+      }
+      Write-Output "AVISO: ausencia de categoria nao demonstra ausencia do evento real."
       if ($categories.Count -gt 0) {
         foreach ($name in @($categories | Sort-Object -Unique)) {
           Write-Output ("CATEGORIA: " + $name)
