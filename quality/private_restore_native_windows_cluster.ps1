@@ -174,7 +174,7 @@ if ($Initialize) {
   }
   Assert-PortFree
   $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
-  New-Item -LiteralPath $root -ItemType Directory | Out-Null
+  New-Item -Path $root -ItemType Directory | Out-Null
   $ownerRule = "*" + $userSid + ":(OI)(CI)F"
   & icacls.exe $root /inheritance:r /grant:r $ownerRule "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" 1>$null 2>$null
   if ($LASTEXITCODE -ne 0) { Fail "Nao foi possivel proteger a pasta do sandbox." }
