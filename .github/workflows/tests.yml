@@ -73,7 +73,8 @@ jobs:
             ".\\quality\\private_restore_native_windows_diagnose.ps1",
             ".\\quality\\private_restore_native_windows_log_evidence.ps1",
             ".\\quality\\private_restore_native_windows_stability.ps1",
-            ".\\quality\\private_restore_native_windows_detached_start.ps1"
+            ".\\quality\\private_restore_native_windows_detached_start.ps1",
+            ".\\quality\\private_restore_native_windows_readiness.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -336,6 +337,27 @@ jobs:
             throw "Regressao 3.45: EOF de stdout/stderr nao pode bloquear gate do pg_ctl."
           }
           Write-Output "Aurora 3.45: simulacao de processo encerrado com pipe aberto aprovada."
+      - name: Aurora 3.46 prontidao pg_isready somente testes sinteticos
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_readiness.ps1"
+          $out = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($out -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico Aurora 3.46 falhou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'private_restore_native_windows_verify.ps1' -or
+              $source -notmatch 'Test-IsolatedActive' -or
+              $source -notmatch 'Get-SafeReadiness' -or
+              $source -notmatch 'GATE: PRONTIDAO_TCP_APROVADA' -or
+              $source -notmatch '\$readyBin -h "127.0.0.1" -p "55432"' -or
+              $source -notmatch '\-q -t "3"' -or
+              $source -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_restore|initdb|dropdb|createdb|psql|postgres|Start-Process|Stop-Process|Start-Service|Stop-Service|pg_ctl)\b') {
+            throw "Aurora 3.46 nao preserva alvo fixo e modos nao invasivos."
+          }
+          Write-Output "Aurora 3.46: leitura isolada e classificacao de retorno aprovadas sem conexoes reais."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
