@@ -209,6 +209,28 @@ jobs:
             throw "Guardas de privacidade/nao escrita do diagnostico 3.39 falharam."
           }
           Write-Output "Aurora 3.39: classificador sintetico e leitura limitada aprovados."
+          # Regressao 3.40: PowerShell trata $pid como a variavel automatica $PID
+          # (somente leitura), sem diferenciar maiusculas e minusculas.
+          $tokens = $null
+          $parseErrors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script).Path, [ref]$tokens, [ref]$parseErrors
+          )
+          if ($parseErrors.Count -ne 0) { throw "Script 3.40 nao passou no parser." }
+          $forbiddenAssignments = @($ast.FindAll({
+            param($node)
+            if ($node -isnot [System.Management.Automation.Language.AssignmentStatementAst]) {
+              return $false
+            }
+            $left = $node.Left
+            return ($left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+              @("pid","host","pshome") -contains $left.VariablePath.UserPath.ToLowerInvariant())
+          }, $true))
+          if ($forbiddenAssignments.Count -gt 0 -or
+              $source -notmatch '\$postmasterPidFile\s*=\s*Join-Path\s+\$data\s+"postmaster\.pid"') {
+            throw "Colisao com variavel automatica de PowerShell no diagnostico 3.40."
+          }
+          Write-Output "Aurora 3.40: verificacao AST contra variaveis automaticas reservadas aprovada."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
