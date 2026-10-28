@@ -314,6 +314,28 @@ jobs:
           # Modo -SelfTest ja cobre token invalido sem passar pelo modo de inicializacao.
           # A CI jamais invoca -StartDetached, mesmo com token vazio.
           Write-Output "Aurora 3.44: confirmacao e configuracao sem console validadas offline."
+      - name: Aurora 3.45 processo finalizado independe de EOF dos pipes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_detached_start.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Regressao 3.45: teste sintetico nao passou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'Get-PgCtlResult' -or
+              $source -notmatch 'Get-PgCtlResult \$true 0 \$false \$false' -or
+              $source -notmatch '\$exited = \[bool\]\$child.WaitForExit\(45000\)' -or
+              $source -notmatch '\$exitCode = \[int\]\$child.ExitCode' -or
+              $source -notmatch 'Test-VerifiedActive \$after' -or
+              $source -match '\$outTask\.Wait\(' -or
+              $source -match '\$errTask\.Wait\(' -or
+              $source -match '\$outTask\.Result' -or
+              $source -match '\$errTask\.Result') {
+            throw "Regressao 3.45: EOF de stdout/stderr nao pode bloquear gate do pg_ctl."
+          }
+          Write-Output "Aurora 3.45: simulacao de processo encerrado com pipe aberto aprovada."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |

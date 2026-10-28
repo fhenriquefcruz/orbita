@@ -1,4 +1,4 @@
-# ORBITA Aurora 3.44 | Inicio experimental SEM console (somente sandbox privado).
+# ORBITA Aurora 3.45 | Inicio experimental SEM console (somente sandbox privado).
 # NAO registra servicos, NAO reinicializa cluster, NAO executa SQL ou pg_restore.
 # Para iniciar, exigir -StartDetached e confirmacao literal. NENHUM retry automatico.
 [CmdletBinding()]
@@ -50,6 +50,13 @@ function Test-VerifiedActive([string[]]$messages) {
     ([string]$_) -clike "CLUSTER ATIVO: PID do postmaster confere e listener exclusivo 127.0.0.1:55432.*"
   }).Count -eq 1
 }
+function Get-PgCtlResult([bool]$exited,[int]$exitCode,[bool]$stdoutEof,[bool]$stderrEof) {
+  # EOF de pipes NAO e sinal de saida do pg_ctl: outro processo pode reter handles.
+  # Os parametros de EOF existem para autotestar essa independencia.
+  if (-not $exited) { return "INCONCLUSIVO" }
+  if ($exitCode -ne 0) { return "FALHA" }
+  return "SAIU_ZERO"
+}
 if ($SelfTest -and $StartDetached) { Fail "Escolha um unico modo." }
 if ($SelfTest) {
   $stopped = @(
@@ -62,7 +69,11 @@ if ($SelfTest) {
       -not (Test-VerifiedStopped $stopped) -or
       (Test-VerifiedStopped (@($stopped + $active))) -or
       -not (Test-VerifiedActive $active) -or
-      (Test-VerifiedActive @("CLUSTER ATIVO: outro processo")) ) {
+      (Test-VerifiedActive @("CLUSTER ATIVO: outro processo")) -or
+      (Get-PgCtlResult $true 0 $false $false) -cne "SAIU_ZERO" -or
+      (Get-PgCtlResult $true 0 $true $true) -cne "SAIU_ZERO" -or
+      (Get-PgCtlResult $false -1 $true $true) -cne "INCONCLUSIVO" -or
+      (Get-PgCtlResult $true 1 $true $true) -cne "FALHA") {
     Fail "Autoteste de confirmacao/identidade e exclusividade falhou."
   }
   $testStartInfo = [Diagnostics.ProcessStartInfo]::new()
@@ -74,7 +85,7 @@ if ($SelfTest) {
       -not $testStartInfo.RedirectStandardOutput -or -not $testStartInfo.RedirectStandardError) {
     Fail "Autoteste de isolamento de console falhou."
   }
-  Write-Output "AUTOTESTE APROVADO: processo sem console, confirmacao e estados sinteticos."
+  Write-Output "AUTOTESTE APROVADO: EOF independente, processo sem console e estados sinteticos."
   exit 0
 }
 if (-not $StartDetached) {
@@ -106,7 +117,7 @@ catch { Fail "Preflight de identidade do sandbox falhou; nenhuma inicializacao."
 if (-not (Test-VerifiedStopped $before)) {
   Fail "Preflight nao confirmou sandbox parado e exclusivo; nenhuma inicializacao."
 }
-Write-Output "=== ORBITA 3.44 | START SEM CONSOLE - SOMENTE 55432 ==="
+Write-Output "=== ORBITA 3.45 | START SEM CONSOLE - SOMENTE 55432 ==="
 Write-Output "IDENTIDADE: sandbox PostgreSQL 17 parado e isolamento 127.0.0.1:55432 aprovado."
 Write-Output "PROCESSO: CreateNoWindow e redirecionamento de stdout/stderr; nenhum log bruto exibido."
 Write-Output "INICIANDO: uma tentativa de pg_ctl exclusivamente no sandbox ORBITA."
@@ -126,29 +137,35 @@ $psi.EnvironmentVariables["PGPORT"] = "55432"
 $child = [Diagnostics.Process]::new()
 $child.StartInfo = $psi
 $exitCode = -1
+$exited = $false
+$stdoutEof = $false
+$stderrEof = $false
 try {
   if (-not $child.Start()) { Fail "pg_ctl nao iniciou; nenhuma repeticao." }
+  # As duas leituras iniciam em paralelo para nao bloquear pipes cheios.
+  # IMPORTANTE: PostgreSQL pode herdar um handle de escrita do pg_ctl.
+  # ReadToEndAsync pode ficar pendente sem significar que pg_ctl continua executando.
   $outTask = $child.StandardOutput.ReadToEndAsync()
   $errTask = $child.StandardError.ReadToEndAsync()
-  if (-not $child.WaitForExit(45000)) {
+  $exited = [bool]$child.WaitForExit(45000)
+  if (-not $exited) {
     Fail "pg_ctl excedeu tempo; NAO interromper processo nem tentar start novamente."
   }
-  # Drenar os streams sem jamais imprimir texto bruto.
-  if (-not $outTask.Wait(2000) -or -not $errTask.Wait(2000)) {
-    Fail "Saida do processo ainda pendente; nao executar restore nem retry."
-  }
-  $null = $outTask.Result
-  $null = $errTask.Result
   $exitCode = [int]$child.ExitCode
+  # Consultar apenas estado booleano: nunca aguardar EOF, nunca mostrar texto bruto.
+  $stdoutEof = [bool]$outTask.IsCompleted
+  $stderrEof = [bool]$errTask.IsCompleted
 } catch {
   Fail "Resultado do inicio inconclusivo. Nao repetir start; verificar cluster e log sanitizado."
 } finally {
   $child.Dispose()
 }
-if ($exitCode -ne 0) {
-  Fail "pg_ctl retornou falha. Nao tentar iniciar novamente; usar diagnostico somente leitura."
+$result = Get-PgCtlResult $exited $exitCode $stdoutEof $stderrEof
+if ($result -cne "SAIU_ZERO") {
+  Fail "pg_ctl sem saida zero confirmada; nao repetir start nem restaurar."
 }
-Write-Output "PG_CTL: terminou com sucesso; verificando identidade real, nao apenas mensagem de prontidao."
+Write-Output "PG_CTL: processo terminou com codigo zero; EOF dos pipes nao e criterio de estabilidade."
+Write-Output "PG_CTL: verificando identidade real e listener, nao apenas mensagem de prontidao."
 
 $after = @()
 try { $after = @(& $verifyScript) }
