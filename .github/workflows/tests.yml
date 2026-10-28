@@ -272,6 +272,18 @@ jobs:
             throw "Observador 3.43 perdeu garantia de leitura ou classificacao."
           }
           Write-Output "Aurora 3.43: observacao passiva e casos de falha testados sem cluster."
+      - name: Exigir pre-gate de politica de execucao sem alteracao permanente
+        shell: powershell
+        run: |
+          $guide = Get-Content ".\quality\NATIVE_WINDOWS_SUPERVISED_START_3_43.md" -Raw
+          if ($guide -notmatch 'Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned' -or
+              $guide -notmatch 'MachinePolicy' -or
+              $guide -notmatch 'UserPolicy' -or
+              $guide -notmatch 'NAO executar Gate B' -or
+              $guide -match 'Set-ExecutionPolicy -Scope (LocalMachine|CurrentUser)') {
+            throw "Guia Windows precisa bloquear Gate B diante de policy restritiva e usar apenas escopo Process."
+          }
+          Write-Output "Aurora 3.43: guia de politica restrita ao processo e gate explicito OK."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
