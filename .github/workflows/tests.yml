@@ -242,6 +242,16 @@ jobs:
             throw "Protecoes de sequencia e sigilo da Aurora 3.41 ausentes."
           }
           Write-Output "Aurora 3.41: ordem sintetica e redacao de log aprovadas."
+          # Regressao 3.42: short shutdown, distinção checkpoint/pedido e indicios de console.
+          if ($source -notmatch 'EXCECAO_CONSOLE_RECONHECIDA_ENTRE_MARCOS' -or
+              $source -notmatch 'CHECKPOINT shutdown immediate NAO comprova parada abrupta' -or
+              $source -notmatch 'RECUPERACAO_APOS_QUEDA' -or
+              $source -notmatch 'LOG: shutting down' -or
+              $source -notmatch 'Autoteste de desligamento normal' -or
+              $source -match '(?m)^\s*(?:pg_ctl|pg_restore|createdb|dropdb|initdb)\s') {
+            throw "Guardas de diagnostico da Aurora 3.42 incompletas."
+          }
+          Write-Output "Aurora 3.42: desligamento curto e indicios de console validados sem dados reais."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
