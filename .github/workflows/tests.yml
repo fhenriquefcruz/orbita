@@ -78,6 +78,20 @@ jobs:
             }
             Write-Output "PowerShell 5.1: sintaxe validada"
           }
+      - name: Confirmar sondagem npx offline no preflight
+        shell: powershell
+        run: |
+          $text = Get-Content ".\\quality\\private_restore_preflight_windows.ps1" -Raw
+          if ($text -notmatch '--offline --yes supabase --version') {
+            throw "A verificacao via npx deve ser exclusivamente offline."
+          }
+          if ($text -notmatch 'npx.cmd' -or $text -notmatch 'Supabase CLI: DISPONIVEL') {
+            throw "O fallback de CLI via npx.cmd desapareceu."
+          }
+          if ($text -match 'supabase (db push|db reset|link)') {
+            throw "Operacao remota ou destrutiva nao permitida no preflight."
+          }
+          Write-Output "Fallback npx offline preservado; sem alteracao de banco."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
