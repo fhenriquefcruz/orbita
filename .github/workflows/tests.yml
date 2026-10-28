@@ -311,12 +311,9 @@ jobs:
               $text -match 'StartDetached\s*-eq\s*\$true') {
             throw "Guardas de isolamento ou falta de retry da Aurora 3.44 falharam."
           }
-          # Recusar tentativa sem confirmacao; a CI jamais inicializa PostgreSQL.
-          $bad = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -StartDetached 2>$null)
-          if ($LASTEXITCODE -eq 0) {
-            throw "3.44 permitiu start sem confirmacao!"
-          }
-          Write-Output "Aurora 3.44: confirmacao obrigatoria e execucao sem console validadas offline."
+          # Modo -SelfTest ja cobre token invalido sem passar pelo modo de inicializacao.
+          # A CI jamais invoca -StartDetached, mesmo com token vazio.
+          Write-Output "Aurora 3.44: confirmacao e configuracao sem console validadas offline."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
