@@ -65,7 +65,8 @@ jobs:
           $files = @(
             ".\\quality\\private_database_backup_windows.ps1",
             ".\\quality\\verify_database_backup_windows.ps1",
-            ".\\quality\\private_restore_preflight_windows.ps1"
+            ".\\quality\\private_restore_preflight_windows.ps1",
+            ".\\quality\\private_restore_native_windows_preflight.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -92,6 +93,36 @@ jobs:
             throw "Operacao remota ou destrutiva nao permitida no preflight."
           }
           Write-Output "Fallback npx offline preservado; sem alteracao de banco."
+      - name: Exercitar preflight PostgreSQL nativo sem dados na CI
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\quality\private_restore_native_windows_preflight.ps1" -ToolsOnly)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Preflight nativo falhou."
+          }
+          $joined = $output -join [Environment]::NewLine
+          if ($joined -notmatch 'BACKUP: verificacao pulada' -or
+              $joined -notmatch 'SEGURANCA: nenhuma instalacao' -or
+              $joined -notmatch 'restauracao completa NAO COMPROVADA') {
+            throw "Invariantes de seguranca ausentes no preflight nativo."
+          }
+          Write-Output "Preflight PostgreSQL nativo: leitura apenas, sem backup privado na CI."
+      - name: Garantir isolamento da recuperacao nativa
+        shell: powershell
+        run: |
+          $text = Get-Content ".\quality\private_restore_native_windows_preflight.ps1" -Raw
+          if ($text -notmatch 'LocalAddress -eq "0.0.0.0"' -or
+              $text -notmatch 'LocalAddress -eq "::"') {
+            throw "Preflight nao sinaliza listeners wildcard."
+          }
+          if ($text -notmatch '55432' -or $text -notmatch 'restauracao completa NAO COMPROVADA') {
+            throw "Gate de isolamento/restauracao foi removido."
+          }
+          if ($text -match '(?m)^\s*(?:&\s*[\w$]+\s+)?(?:pg_restore|dropdb|initdb|createdb)\s') {
+            throw "Nao se permite restauracao/criacao no preflight diagnostico."
+          }
+          Write-Output "Gate nativo: sem escrita; 5432 reservada e restauracao ainda pendente."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
