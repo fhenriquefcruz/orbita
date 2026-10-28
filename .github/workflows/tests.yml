@@ -72,7 +72,8 @@ jobs:
             ".\\quality\\private_restore_native_windows_verify.ps1",
             ".\\quality\\private_restore_native_windows_diagnose.ps1",
             ".\\quality\\private_restore_native_windows_log_evidence.ps1",
-            ".\\quality\\private_restore_native_windows_stability.ps1"
+            ".\\quality\\private_restore_native_windows_stability.ps1",
+            ".\\quality\\private_restore_native_windows_detached_start.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -81,6 +82,9 @@ jobs:
               (Resolve-Path -LiteralPath $file).Path, [ref]$tokens, [ref]$errors
             ) | Out-Null
             if ($errors.Count -gt 0) {
+              foreach ($parseError in $errors) {
+                Write-Output ("PARSER: line=" + $parseError.Extent.StartLineNumber + "; id=" + $parseError.ErrorId)
+              }
               throw "Falha de sintaxe no script de backup $file."
             }
             Write-Output "PowerShell 5.1: sintaxe validada"
@@ -284,6 +288,32 @@ jobs:
             throw "Guia Windows precisa bloquear Gate B diante de policy restritiva e usar apenas escopo Process."
           }
           Write-Output "Aurora 3.43: guia de politica restrita ao processo e gate explicito OK."
+      - name: Aurora 3.44 no-console one-shot com casos sinteticos
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_detached_start.ps1"
+          $result = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($result -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico da Aurora 3.44 falhou."
+          }
+          $text = Get-Content -LiteralPath $script -Raw
+          if ($text -notmatch 'ORBITA-ISOLATED-55432' -or
+              $text -notmatch 'private_restore_native_windows_verify.ps1' -or
+              $text -notmatch 'CreateNoWindow = \$true' -or
+              $text -notmatch 'RedirectStandardOutput = \$true' -or
+              $text -notmatch 'RedirectStandardError = \$true' -or
+              $text -notmatch 'ProcessStartInfo' -or
+              $text -notmatch 'Test-VerifiedStopped' -or
+              $text -notmatch 'Test-VerifiedActive' -or
+              $text -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $text -match '(?m)^\s*(?:pg_restore|initdb|dropdb|createdb|psql|Start-Service|Stop-Service|Register-ScheduledTask|New-Service)\s' -or
+              $text -match 'StartDetached\s*-eq\s*\$true') {
+            throw "Guardas de isolamento ou falta de retry da Aurora 3.44 falharam."
+          }
+          # Modo -SelfTest ja cobre token invalido sem passar pelo modo de inicializacao.
+          # A CI jamais invoca -StartDetached, mesmo com token vazio.
+          Write-Output "Aurora 3.44: confirmacao e configuracao sem console validadas offline."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
