@@ -108,6 +108,21 @@ jobs:
             throw "Invariantes de seguranca ausentes no preflight nativo."
           }
           Write-Output "Preflight PostgreSQL nativo: leitura apenas, sem backup privado na CI."
+      - name: Garantir isolamento da recuperacao nativa
+        shell: powershell
+        run: |
+          $text = Get-Content ".\quality\private_restore_native_windows_preflight.ps1" -Raw
+          if ($text -notmatch 'LocalAddress -eq "0.0.0.0"' -or
+              $text -notmatch 'LocalAddress -eq "::"') {
+            throw "Preflight nao sinaliza listeners wildcard."
+          }
+          if ($text -notmatch '55432' -or $text -notmatch 'restauracao completa NAO COMPROVADA') {
+            throw "Gate de isolamento/restauracao foi removido."
+          }
+          if ($text -match '(?m)^\s*(?:&\s*[\w$]+\s+)?(?:pg_restore|dropdb|initdb|createdb)\s') {
+            throw "Nao se permite restauracao/criacao no preflight diagnostico."
+          }
+          Write-Output "Gate nativo: sem escrita; 5432 reservada e restauracao ainda pendente."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
