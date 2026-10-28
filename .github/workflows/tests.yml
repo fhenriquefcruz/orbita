@@ -71,7 +71,8 @@ jobs:
             ".\\quality\\private_restore_archive_inventory_windows.ps1",
             ".\\quality\\private_restore_native_windows_verify.ps1",
             ".\\quality\\private_restore_native_windows_diagnose.ps1",
-            ".\\quality\\private_restore_native_windows_log_evidence.ps1"
+            ".\\quality\\private_restore_native_windows_log_evidence.ps1",
+            ".\\quality\\private_restore_native_windows_stability.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -252,6 +253,25 @@ jobs:
             throw "Guardas de diagnostico da Aurora 3.42 incompletas."
           }
           Write-Output "Aurora 3.42: desligamento curto e indicios de console validados sem dados reais."
+      - name: Verificar observador passivo Aurora 3.43 sem ligar banco
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_stability.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or
+              ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico de estabilidade 3.43 falhou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'private_restore_native_windows_verify.ps1' -or
+              $source -notmatch 'Start-Sleep -Seconds \$delay' -or
+              $source -notmatch 'ATIVO_E_ISOLADO_NA_JANELA_DE_60_SEGUNDOS' -or
+              $source -notmatch 'RESTAURACAO BLOQUEADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_ctl|pg_restore|createdb|dropdb|initdb|psql|postgres|Start-Process|Stop-Process)\b') {
+            throw "Observador 3.43 perdeu garantia de leitura ou classificacao."
+          }
+          Write-Output "Aurora 3.43: observacao passiva e casos de falha testados sem cluster."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
