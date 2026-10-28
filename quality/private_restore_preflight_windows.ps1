@@ -101,8 +101,37 @@ if ($supabase) {
   }
   $supabaseReady = ($sbExit -eq 0) -and -not [string]::IsNullOrWhiteSpace(($sbVersion -join ""))
 }
-if ($supabaseReady) { Write-Output "Supabase CLI: DISPONIVEL." }
-else { Write-Output "Supabase CLI: NAO DETECTADO OU NAO EXECUTAVEL." }
+# Windows pode ter a CLI apenas via npx.cmd (sem Scoop nem npm global).
+# Verificar exclusivamente o cache: --offline proibe downloads de pacotes.
+# O comando --version nao solicita login nem conecta a qualquer projeto remoto.
+$cliSource = if ($supabaseReady) { "comando supabase" } else { "" }
+$npx = Get-Command npx.cmd -ErrorAction SilentlyContinue
+if (-not $supabaseReady -and $npx) {
+  $oldPreference = $ErrorActionPreference
+  $npxExit = 1
+  $npxVersion = @()
+  try {
+    $ErrorActionPreference = "Continue"
+    $npxVersion = @(& $npx.Source --offline --yes supabase --version 2>$null)
+    $npxExit = $LASTEXITCODE
+  } catch {
+    $npxExit = 1
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
+  $versionLine = ($npxVersion -join " ").Trim()
+  if ($npxExit -eq 0 -and $versionLine -match '^\d+\.\d+\.\d+$') {
+    $supabaseReady = $true
+    $cliSource = "cache local npx.cmd"
+  }
+}
+if ($supabaseReady) {
+  Write-Output ("Supabase CLI: DISPONIVEL via " + $cliSource + ".")
+} elseif ($npx) {
+  Write-Output "Supabase CLI: npx.cmd detectado, mas pacote offline nao disponivel. Para verificar separadamente: npx.cmd --yes supabase --version."
+} else {
+  Write-Output "Supabase CLI: NAO DETECTADO; npx.cmd ausente."
+}
 
 Write-Output "=== RESULTADO ==="
 if ($pgReady -and $dockerReady -and $supabaseReady) {
