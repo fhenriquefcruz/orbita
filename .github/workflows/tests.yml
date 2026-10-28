@@ -66,7 +66,8 @@ jobs:
             ".\\quality\\private_database_backup_windows.ps1",
             ".\\quality\\verify_database_backup_windows.ps1",
             ".\\quality\\private_restore_preflight_windows.ps1",
-            ".\\quality\\private_restore_native_windows_preflight.ps1"
+            ".\\quality\\private_restore_native_windows_preflight.ps1",
+            ".\\quality\\private_restore_native_windows_cluster.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -123,6 +124,30 @@ jobs:
             throw "Nao se permite restauracao/criacao no preflight diagnostico."
           }
           Write-Output "Gate nativo: sem escrita; 5432 reservada e restauracao ainda pendente."
+      - name: Validar guardas e exercitar somente -Check do cluster isolado
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = Get-Content ".\quality\private_restore_native_windows_cluster.ps1" -Raw
+          if ($script -notmatch 'ORBITA-ISOLATED-55432' -or
+              $script -notmatch 'port = 55432' -or
+              $script -notmatch "listen_addresses = '127\.0\.0\.1'" -or
+              $script -notmatch 'scram-sha-256' -or
+              $script -notmatch '--pwprompt') {
+            throw "Protecoes de cluster local incompletas."
+          }
+          if ($script -match '(?m)^\s*(?:&\s*[\w$]+\s+)?pg_restore\s' -or
+              $script -match '(?m)^\s*(?:&\s*[\w$]+\s+)?dropdb\s') {
+            throw "Cluster manager nao pode executar restore nem apagar databases."
+          }
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\quality\private_restore_native_windows_cluster.ps1" -Check)
+          if ($LASTEXITCODE -ne 0) { throw "Check Windows falhou." }
+          $joined = $output -join [Environment]::NewLine
+          if ($joined -notmatch 'CHECK LOCAL' -or
+              $joined -notmatch 'SEGURANCA: nenhuma criacao de arquivos') {
+            throw "Modo somente leitura ausente."
+          }
+          Write-Output "Cluster isolado: parser e -Check aprovados sem criar qualquer banco."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
