@@ -67,7 +67,9 @@ jobs:
             ".\\quality\\verify_database_backup_windows.ps1",
             ".\\quality\\private_restore_preflight_windows.ps1",
             ".\\quality\\private_restore_native_windows_preflight.ps1",
-            ".\\quality\\private_restore_native_windows_cluster.ps1"
+            ".\\quality\\private_restore_native_windows_cluster.ps1",
+            ".\\quality\\private_restore_archive_inventory_windows.ps1",
+            ".\\quality\\private_restore_native_windows_verify.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -148,6 +150,29 @@ jobs:
             throw "Modo somente leitura ausente."
           }
           Write-Output "Cluster isolado: parser e -Check aprovados sem criar qualquer banco."
+      - name: Testar inventario offline e isolamento sem arquivos privados
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scripts = @(
+            ".\quality\private_restore_archive_inventory_windows.ps1",
+            ".\quality\private_restore_native_windows_verify.ps1"
+          )
+          foreach ($script in $scripts) {
+            $results = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+            if ($LASTEXITCODE -ne 0 -or
+                ($results -join " ") -notmatch 'AUTOTESTE APROVADO') {
+              throw "Autoteste Windows offline falhou: $script"
+            }
+          }
+          $inventory = Get-Content ".\quality\private_restore_archive_inventory_windows.ps1" -Raw
+          $verify = Get-Content ".\quality\private_restore_native_windows_verify.ps1" -Raw
+          if ($inventory -notmatch 'pgRestore --list' -or
+              $inventory -match 'pgRestore .*--dbname' -or
+              $verify -notmatch '127.0.0.1' -or $verify -notmatch 'postmaster.pid') {
+            throw "Protecao de inventario/identidade local ausente."
+          }
+          Write-Output "Aurora 3.37: analisadores offline OK, sem backup ou cluster de CI."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
