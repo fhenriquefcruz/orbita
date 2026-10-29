@@ -33,6 +33,8 @@ O operador executou `quality/private_restore_archive_inventory_windows.ps1` no W
 **A — Extrair dados e estruturas pertencentes ao ORBITA, somente quando dependencias forem resolvidas.**
 - O novo inventario classifica a quantidade de `TABLE DATA public orbita_*` e separa dos dados em schemas gerenciados.
 - Objetos em `public` com prefixo `orbita_` sao **candidatos**, nao uma allowlist executavel.
+- **Dependencia confirmada no codigo-fonte:** `infra/supabase/001_core.sql` define `public.orbita_records.user_id`, `public.orbita_chat_messages.user_id` e `public.orbita_telegram_updates.user_id` com `REFERENCES auth.users(id) ON DELETE CASCADE`. As politicas de registros e mensagens verificam `auth.uid()`. Assim, a recuperacao apenas das tabelas `orbita_*` em PostgreSQL nativo vazio **falharia ou perderia a semantica de acesso**, salvo reconstrucao explicitamente projetada de roles/Auth/FK/RLS. **Nao restaurar APP_ONLY automaticamente**.
+
 - Devem ser revisados proprietarios, FK, constraints, triggers, funcoes, sequencias, politicas RLS e eventuais dependencias de `auth.uid()`.
 - Importar dados de usuarios `auth.users` separadamente em PostgreSQL nativo nao equivale a criar um sistema Supabase Auth funcional.
 - Sem execucao de `pg_restore`, sem criar SQL de restore nem lista `-L` automaticamente.
