@@ -417,6 +417,29 @@ jobs:
             throw "3.48: invariantes de sigilo, nao restauracao e comparacao de riscos violadas."
           }
           Write-Output "Aurora 3.48: matriz de risco e sumario de gates seguros sem SQL, backup ou rede."
+      - name: Recuperacao app-only vs Supabase sem restore (TOC sintetico)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_archive_inventory_windows.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Falha no autoteste offline de particao do TOC."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'Summarize-RestoreScope' -or
+              $source -notmatch 'Show-RestoreScope' -or
+              $source -notmatch 'TABLE_DATA_PUBLIC_ORBITA' -or
+              $source -notmatch 'TABLE_DATA_SCHEMAS_GERENCIADOS' -or
+              $source -notmatch 'BACKUP_COMPLETO_NO_POSTGRES_NATIVO_NAO_APROVADO' -or
+              $source -notmatch 'NENHUM_FILTRO_EXECUTAVEL_GERADO' -or
+              $source -notmatch 'Autoteste de particao APP_ONLY' -or
+              $source -notmatch 'Autoteste nao bloqueou inconsistencia do TOC' -or
+              $source -match '(?mi)^\s*(?:&\s*)?(?:pg_restore|psql|pg_ctl|initdb|dropdb|createdb|Start-Process|Stop-Process|Start-Service|Stop-Service)\b' -or
+              $source -match '(?mi)^\s*(?:Write-Output|Write-Host)\s+\$(?:toc|lines|archive|entry|name)\b') {
+            throw "Catalogo app-only nao atende aos limites de somente leitura."
+          }
+          Write-Output "Recuperacao por escopo: classificacao de dados e barreiras nativas aprovadas offline."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
