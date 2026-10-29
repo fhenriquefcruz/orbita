@@ -91,6 +91,61 @@ function Summarize-Compatibility([string]$toc) {
     Sequences = $counts["SEQUENCE SET"]
   }
 }
+function Summarize-RestoreScope([string]$toc) {
+  # Estatisticas conservadoras: NAO selecionam nem geram lista de restore.
+  # Um objeto no esquema public nao e necessariamente independente do Supabase.
+  $appData = 0
+  $managedData = 0
+  $otherData = 0
+  $appObjectRows = 0
+  $publicOtherData = 0
+  $pattern = '(?m)^\s*\d+;\s+\d+\s+\d+\s+(?<kind>TABLE DATA|TABLE|SEQUENCE SET|SEQUENCE|INDEX|CONSTRAINT|POLICY|ROW SECURITY|TRIGGER|FUNCTION|PROCEDURE|ACL|DEFAULT ACL)\s+(?<schema>[a-zA-Z_][a-zA-Z_0-9]*)\s+(?<object>[^\s;]+)'
+  $managedSchemas = @("auth","storage","realtime","extensions","vault","graphql","supabase_functions","pgsodium","net")
+  foreach ($entry in [regex]::Matches($toc,$pattern)) {
+    $kind = $entry.Groups["kind"].Value
+    $schema = $entry.Groups["schema"].Value
+    $name = $entry.Groups["object"].Value
+    $isApp = ($schema -ceq "public" -and $name.StartsWith("orbita_",[StringComparison]::Ordinal))
+    $isManaged = ($managedSchemas -ccontains $schema)
+    if ($isApp) { $appObjectRows++ }
+    if ($kind -cne "TABLE DATA") { continue }
+    if ($isApp) {
+      $appData++
+    } elseif ($isManaged) {
+      $managedData++
+    } else {
+      $otherData++
+      if ($schema -ceq "public") { $publicOtherData++ }
+    }
+  }
+  return [pscustomobject]@{
+    AppTableData = $appData
+    ManagedTableData = $managedData
+    OtherTableData = $otherData
+    OtherPublicTableData = $publicOtherData
+    AppObjectRows = $appObjectRows
+  }
+}
+function Show-RestoreScope($model,$scope,$inventory) {
+  if (($scope.AppTableData + $scope.ManagedTableData + $scope.OtherTableData) -ne $inventory.TableData) {
+    Fail "Particao de TABLE DATA diverge do TOC: nenhum procedimento de restore autorizado."
+  }
+  Write-Output "=== ORBITA | ESCOPO DE RECUPERACAO (SOMENTE TOC) ==="
+  Write-Output ("TABLE_DATA_PUBLIC_ORBITA: " + $scope.AppTableData)
+  Write-Output ("TABLE_DATA_SCHEMAS_GERENCIADOS: " + $scope.ManagedTableData)
+  Write-Output ("TABLE_DATA_OUTROS: " + $scope.OtherTableData)
+  Write-Output ("TABLE_DATA_PUBLIC_NAO_ORBITA: " + $scope.OtherPublicTableData)
+  Write-Output ("ENTRADAS_PUBLIC_ORBITA_CANDIDATAS: " + $scope.AppObjectRows)
+  if ($model.Managed -gt 0 -or $model.Extensions -gt 0 -or $model.PubSub -gt 0) {
+    Write-Output "ESTRATEGIA: BACKUP_COMPLETO_NO_POSTGRES_NATIVO_NAO_APROVADO."
+    Write-Output "PROXIMO_PLANO: ANALISAR_APP_ONLY_VS_SUPABASE_ISOLADO; NENHUM_FILTRO_EXECUTAVEL_GERADO."
+  } else {
+    Write-Output "ESTRATEGIA: COMPATIBILIDADE_NATIVA_AINDA_NAO_COMPROVADA."
+    Write-Output "PROXIMO_PLANO: REVISAR_DEPENDENCIAS_ANTES_DE_QUALQUER_RESTORE."
+  }
+  Write-Output "AVISO: tabela identificada por nome nao prova independencia de Auth, triggers, FK ou roles."
+  Write-Output "SEGURANCA: nenhum SQL, restore, lista de IDs ou dado privado publicado."
+}
 function Show-Compatibility($model) {
   Write-Output "=== ORBITA 3.48 | MATRIZ DE COMPATIBILIDADE OFFLINE ==="
   Write-Output ("VERSAO_ORIGEM: " + $model.SourceMajor)
@@ -165,7 +220,36 @@ if ($SelfTest) {
   if ($otherVersion.SourceMajor -cne "OUTRO_MAJOR") {
     Fail "Autoteste de divergencia de versao major falhou."
   }
-  Write-Output "AUTOTESTE APROVADO: inventario e matriz de riscos com dados sinteticos, sem backup real."
+  $scopeSample = @'
+1; 0 0 TABLE DATA auth users postgres
+2; 0 0 TABLE DATA storage objects postgres
+3; 0 0 TABLE DATA public orbita_records postgres
+4; 0 0 TABLE DATA public orbita_chat_messages postgres
+5; 0 0 TABLE DATA public independent_records postgres
+6; 0 0 TABLE public orbita_records postgres
+7; 0 0 POLICY public orbita_records select_self postgres
+8; 0 0 TABLE DATA analytics history postgres
+'@
+  $scope = Summarize-RestoreScope $scopeSample
+  if ($scope.AppTableData -ne 2 -or $scope.ManagedTableData -ne 2 -or
+      $scope.OtherTableData -ne 2 -or $scope.OtherPublicTableData -ne 1 -or
+      $scope.AppObjectRows -ne 4) {
+    Fail "Autoteste de particao APP_ONLY e schemas gerenciados falhou."
+  }
+  $fakeInventory = [pscustomobject]@{ TableData = 6 }
+  $fakeModel = [pscustomobject]@{ Managed = 2; Extensions = 1; PubSub = 0 }
+  $checkLines = @(Show-RestoreScope $fakeModel $scope $fakeInventory)
+  if (($checkLines -join " ") -notmatch 'BACKUP_COMPLETO_NO_POSTGRES_NATIVO_NAO_APROVADO') {
+    Fail "Autoteste de bloqueio do restore nativo integral falhou."
+  }
+  $detectedMismatch = $false
+  try {
+    $badInventory = [pscustomobject]@{ TableData = 7 }
+    $null = @(Show-RestoreScope $fakeModel $scope $badInventory)
+  } catch { $detectedMismatch = $true }
+  if (-not $detectedMismatch) { Fail "Autoteste nao bloqueou inconsistencia do TOC." }
+  Write-Output "AUTOTESTE APROVADO: inventario, riscos e particao APP_ONLY sinteticos; nenhuma conexao."
+
   exit 0
 }
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
@@ -218,6 +302,8 @@ if ($riskModel.EntryCount -ne $inventory.Entries) {
   Fail "Inconsistencia no numero de entradas do TOC; abortar planejamento."
 }
 Show-Compatibility $riskModel
+$scopeModel = Summarize-RestoreScope ($lines -join [Environment]::NewLine)
+Show-RestoreScope $riskModel $scopeModel $inventory
 Write-Output "AVISO: TOC mostra objetos, NAO confirma linhas restauraveis, roles, extensoes ou Supabase Auth."
 Write-Output "PROIBIDO: nao executar pg_restore de dados ate destino isolado verificado e plano de compatibilidade."
 Write-Output "SEGURANCA: sem conexao ao banco, SQL, dump em stdout, senhas ou arquivos novos."
