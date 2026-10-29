@@ -74,7 +74,8 @@ jobs:
             ".\\quality\\private_restore_native_windows_log_evidence.ps1",
             ".\\quality\\private_restore_native_windows_stability.ps1",
             ".\\quality\\private_restore_native_windows_detached_start.ps1",
-            ".\\quality\\private_restore_native_windows_readiness.ps1"
+            ".\\quality\\private_restore_native_windows_readiness.ps1",
+            ".\\quality\\private_restore_native_windows_local_auth.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -358,6 +359,33 @@ jobs:
             throw "Aurora 3.46 nao preserva alvo fixo e modos nao invasivos."
           }
           Write-Output "Aurora 3.46: leitura isolada e classificacao de retorno aprovadas sem conexoes reais."
+      - name: Aurora 3.47 autenticar SOMENTE sandbox local com autoteste sintetico
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_local_auth.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico Aurora 3.47 falhou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'Test-ReadyGate' -or
+              $source -notmatch 'Test-Confirm' -or
+              $source -notmatch 'ORBITA-ISOLATED-55432' -or
+              $source -notmatch 'Read-Host -Prompt .* -AsSecureString' -or
+              $source -notmatch 'SecureStringToBSTR' -or
+              $source -notmatch 'ZeroFreeBSTR' -or
+              $source -notmatch 'PGPASSWORD' -or
+              $source -notmatch 'private_restore_native_windows_readiness.ps1' -or
+              $source -notmatch 'ProcessStartInfo' -or
+              $source -notmatch '\-p "55432"' -or
+              $source -notmatch '\-c "\\conninfo"' -or
+              $source -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_restore|pg_ctl|initdb|dropdb|createdb|Start-Service|Stop-Service|Start-Process)\b' -or
+              $source -match '(?mi)^\s*(?:Write-Output|Write-Host)\s+\$(?:plainPassword|securePassword)\b') {
+            throw "3.47 nao preservou senha oculta, destino fixo ou preflight."
+          }
+          Write-Output "Aurora 3.47: SCRAM local sintético aprovado, CI jamais solicita senha ou acessa banco."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |
