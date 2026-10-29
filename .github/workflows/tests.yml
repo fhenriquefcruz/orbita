@@ -75,7 +75,8 @@ jobs:
             ".\\quality\\private_restore_native_windows_stability.ps1",
             ".\\quality\\private_restore_native_windows_detached_start.ps1",
             ".\\quality\\private_restore_native_windows_readiness.ps1",
-            ".\\quality\\private_restore_native_windows_local_auth.ps1"
+            ".\\quality\\private_restore_native_windows_local_auth.ps1",
+            ".\\quality\\private_restore_readiness_summary_windows.ps1"
           )
           foreach ($file in $files) {
             $tokens = $null
@@ -386,6 +387,36 @@ jobs:
             throw "3.47 nao preservou senha oculta, destino fixo ou preflight."
           }
           Write-Output "Aurora 3.47: SCRAM local sintético aprovado, CI jamais solicita senha ou acessa banco."
+      - name: Aurora 3.48 modelo de compatibilidade do TOC sem backup privado
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $inventory = ".\quality\private_restore_archive_inventory_windows.ps1"
+          $summary = ".\quality\private_restore_readiness_summary_windows.ps1"
+          foreach ($script in @($inventory,$summary)) {
+            $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+            if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+              throw "Aurora 3.48: autoteste sintetico falhou."
+            }
+          }
+          $inv = Get-Content -LiteralPath $inventory -Raw
+          $sum = Get-Content -LiteralPath $summary -Raw
+          if ($inv -notmatch 'Summarize-Compatibility' -or
+              $inv -notmatch 'COMPATIBILIDADE_COM_POSTGRESQL_NATIVO: NAO_DEMONSTRADA' -or
+              $inv -notmatch 'GATE: SOMENTE_PLANEJAMENTO' -or
+              $inv -notmatch 'Summarize-Compatibility \$riskSample' -or
+              $inv -notmatch 'OUTRO_MAJOR' -or
+              $sum -notmatch 'Get-ArchiveStatus' -or
+              $sum -notmatch 'Get-TcpStatus' -or
+              $sum -notmatch 'BLOQUEADO: pg_restore' -or
+              $sum -notmatch 'private_restore_native_windows_readiness.ps1' -or
+              $sum -notmatch 'private_restore_archive_inventory_windows.ps1' -or
+              $sum -match '(?mi)^\s*(?:&\s*)?(?:pg_restore|psql|pg_ctl|initdb|dropdb|createdb|Start-Process|Stop-Process|Start-Service|Stop-Service)\b' -or
+              $sum -match '(?mi)^\s*(?:Write-Host|Write-Output)\s+\$(?:lines|toc|backupOutput|tcpOutput)\b' -or
+              $inv -match '(?mi)^\s*(?:Write-Host|Write-Output)\s+\$(?:lines|toc)\b') {
+            throw "3.48: invariantes de sigilo, nao restauracao e comparacao de riscos violadas."
+          }
+          Write-Output "Aurora 3.48: matriz de risco e sumario de gates seguros sem SQL, backup ou rede."
       - name: Garantir que o gate Windows nao le credenciais na CI
         shell: powershell
         run: |

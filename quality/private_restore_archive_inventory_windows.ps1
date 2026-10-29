@@ -36,6 +36,75 @@ function Summarize-Toc([string]$toc) {
     Telegram = $orbitaTelegram
   }
 }
+function Summarize-Compatibility([string]$toc) {
+  # Usar SOMENTE tipos canonicos do TOC; jamais divulgar linhas, nomes ou donos.
+  # Os tipos compostos precisam vir antes dos prefixos simples.
+  $kinds = @(
+    "DEFAULT ACL", "ROW SECURITY", "TABLE DATA", "SEQUENCE SET",
+    "MATERIALIZED VIEW", "EVENT TRIGGER", "FOREIGN DATA WRAPPER",
+    "FOREIGN TABLE", "USER MAPPING", "EXTENSION", "ACL", "FUNCTION",
+    "PROCEDURE", "TRIGGER", "POLICY", "PUBLICATION", "SUBSCRIPTION",
+    "SCHEMA", "BLOB", "BLOBS"
+  )
+  $counts = @{}
+  foreach ($kind in $kinds) { $counts[$kind] = 0 }
+  $rows = [regex]::Matches($toc,'(?m)^\s*\d+;\s+\d+\s+\d+\s+(?<payload>[^\r\n]*)')
+  $managedObjects = 0
+  foreach ($row in $rows) {
+    $payload = $row.Groups["payload"].Value
+    foreach ($kind in $kinds) {
+      if ($payload.StartsWith($kind + " ",[StringComparison]::Ordinal) -or
+          $payload.Equals($kind,[StringComparison]::Ordinal)) {
+        $counts[$kind]++
+        break
+      }
+    }
+    # Supabase possui schemas/objetos gerenciados que nao existem automaticamente
+    # no servidor PostgreSQL nativo isolado (nunca inferir compatibilidade).
+    if ($payload -match '^(?:TABLE DATA|TABLE|SEQUENCE|FUNCTION|PROCEDURE|POLICY|ROW SECURITY|ACL|DEFAULT ACL|SCHEMA|VIEW|TRIGGER|INDEX|TYPE|EXTENSION)\s+(?:-\s+)?(?:auth|storage|realtime|extensions|vault|graphql|supabase_functions|pgsodium|net)(?:\s|$)') {
+      $managedObjects++
+    }
+  }
+  $sourceMajor = "NAO_INFORMADO"
+  $sourceMatch = [regex]::Match($toc,'(?m)^;\s*Dumped from database version:\s*(\d{1,2})(?:\.|\s|$)')
+  if ($sourceMatch.Success) {
+    if ($sourceMatch.Groups[1].Value -eq "17") {
+      $sourceMajor = "POSTGRES_17"
+    } else {
+      $sourceMajor = "OUTRO_MAJOR"
+    }
+  }
+  return [pscustomobject]@{
+    EntryCount = $rows.Count
+    SourceMajor = $sourceMajor
+    Extensions = $counts["EXTENSION"]
+    Acl = $counts["ACL"]
+    DefaultAcl = $counts["DEFAULT ACL"]
+    Policies = $counts["POLICY"]
+    RowSecurity = $counts["ROW SECURITY"]
+    Functions = ($counts["FUNCTION"] + $counts["PROCEDURE"])
+    Triggers = ($counts["TRIGGER"] + $counts["EVENT TRIGGER"])
+    Managed = $managedObjects
+    Foreign = ($counts["FOREIGN DATA WRAPPER"] + $counts["FOREIGN TABLE"] + $counts["USER MAPPING"])
+    PubSub = ($counts["PUBLICATION"] + $counts["SUBSCRIPTION"])
+    Blobs = ($counts["BLOB"] + $counts["BLOBS"])
+    Sequences = $counts["SEQUENCE SET"]
+  }
+}
+function Show-Compatibility($model) {
+  Write-Output "=== ORBITA 3.48 | MATRIZ DE COMPATIBILIDADE OFFLINE ==="
+  Write-Output ("VERSAO_ORIGEM: " + $model.SourceMajor)
+  Write-Output ("DEPENDENCIAS: EXTENSION=" + $model.Extensions + "; FOREIGN=" + $model.Foreign + "; PUBSUB=" + $model.PubSub)
+  Write-Output ("SEGURANCA_DDL: ACL=" + $model.Acl + "; DEFAULT_ACL=" + $model.DefaultAcl +
+                "; POLICY=" + $model.Policies + "; ROW_SECURITY=" + $model.RowSecurity)
+  Write-Output ("CODIGO_E_DADOS: FUNCOES=" + $model.Functions + "; TRIGGERS=" + $model.Triggers +
+                "; SEQUENCE_SET=" + $model.Sequences + "; BLOB=" + $model.Blobs)
+  Write-Output ("OBJETOS_EM_SCHEMAS_GERENCIADOS: " + $model.Managed)
+  Write-Output "COMPATIBILIDADE_COM_POSTGRESQL_NATIVO: NAO_DEMONSTRADA"
+  Write-Output "RISCO: extensoes, roles, owners, privilegios, RLS e dependencias exigem revisao."
+  Write-Output "ALERTA: TOC nao comprova dados restauraveis nem codigo SQL confiavel."
+  Write-Output "GATE: SOMENTE_PLANEJAMENTO; RESTAURACAO E MIGRACOES BLOQUEADAS."
+}
 function Show-Inventory($data) {
   Write-Output ("TOC: {0} entradas, {1} itens TABLE DATA, {2} POLICY, {3} SCHEMA." -f $data.Entries,$data.TableData,$data.Policies,$data.Schemas)
   Write-Output ("TABLE DATA auth.users: " + $data.AuthUsers)
@@ -69,7 +138,34 @@ if ($SelfTest) {
   if (Has-TableData $sample "public" "orbita_action_proposals") {
     Fail "Teste sintetico encontrou objeto inexistente."
   }
-  Write-Output "AUTOTESTE APROVADO: analise offline do TOC sem acessar backup real."
+  $riskSample = @'
+; Dumped from database version: 17.4
+10; 0 0 EXTENSION - pgcrypto postgres
+11; 0 0 DEFAULT ACL public DEFAULT PRIVILEGES postgres
+12; 0 0 ACL public my_table postgres
+13; 0 0 POLICY public records records_select postgres
+14; 0 0 ROW SECURITY public records postgres
+15; 0 0 FUNCTION public f() postgres
+16; 0 0 TRIGGER public t trigger postgres
+17; 0 0 SCHEMA - auth postgres
+18; 0 0 TABLE DATA auth users postgres
+19; 0 0 PUBLICATION - publication postgres
+20; 0 0 SEQUENCE SET public seq postgres
+'@
+  $risk = Summarize-Compatibility $riskSample
+  if ($risk.SourceMajor -cne "POSTGRES_17" -or $risk.Extensions -ne 1 -or
+      $risk.DefaultAcl -ne 1 -or $risk.Acl -ne 1 -or
+      $risk.Policies -ne 1 -or $risk.RowSecurity -ne 1 -or
+      $risk.Functions -ne 1 -or $risk.Triggers -ne 1 -or
+      $risk.Managed -ne 2 -or $risk.PubSub -ne 1 -or
+      $risk.Sequences -ne 1 -or $risk.EntryCount -ne 11) {
+    Fail "Autoteste de classificacao de compatibilidade 3.48 falhou."
+  }
+  $otherVersion = Summarize-Compatibility "; Dumped from database version: 16.7"
+  if ($otherVersion.SourceMajor -cne "OUTRO_MAJOR") {
+    Fail "Autoteste de divergencia de versao major falhou."
+  }
+  Write-Output "AUTOTESTE APROVADO: inventario e matriz de riscos com dados sinteticos, sem backup real."
   exit 0
 }
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
@@ -117,6 +213,11 @@ if ($exitCode -ne 0) { Fail "Nao foi possivel ler o TOC do arquivo." }
 $inventory = Summarize-Toc ($lines -join [Environment]::NewLine)
 Write-Output "=== AURORA 3.37 | INVENTARIO RESTRITO DO ARQUIVO ==="
 Show-Inventory $inventory
+$riskModel = Summarize-Compatibility ($lines -join [Environment]::NewLine)
+if ($riskModel.EntryCount -ne $inventory.Entries) {
+  Fail "Inconsistencia no numero de entradas do TOC; abortar planejamento."
+}
+Show-Compatibility $riskModel
 Write-Output "AVISO: TOC mostra objetos, NAO confirma linhas restauraveis, roles, extensoes ou Supabase Auth."
 Write-Output "PROIBIDO: nao executar pg_restore de dados ate destino isolado verificado e plano de compatibilidade."
 Write-Output "SEGURANCA: sem conexao ao banco, SQL, dump em stdout, senhas ou arquivos novos."
