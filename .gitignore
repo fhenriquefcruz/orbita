@@ -11,6 +11,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+node_modules/
 .DS_Store
 .vscode/
 .idea/

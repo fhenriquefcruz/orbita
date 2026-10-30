@@ -1,5 +1,7 @@
 # ORBITA 3.0 — Linha de base e matriz de rastreabilidade
 
+> **Registro histórico de 24/10/2026.** A matriz abaixo descreve a linha de base daquela data. O estado atualizado da branch está no [handoff](../product/ORBITA_CODEX_HANDOFF.md) e no adendo ao final deste arquivo; não interpretar pendências históricas como estado atual.
+
 **Referência:** `product/PROMPT_MESTRE_ORBITA_3_0.md` | **Versão base:** 2.2 | **Incremento:** 3.0-alpha.1 | **Data:** 24/10/2026
 
 ## Linha de base técnica confirmada
@@ -64,3 +66,22 @@ Preservar frontend existente e SQLite de desenvolvimento. Acrescentar projeto Su
 ## Situação do incremento
 
 **Em validação.** A autenticação e o guard das views foram adicionados na branch `feat/supabase-auth-protected-panel`. Ainda requerem confirmação do CI, testes com Supabase Auth/RLS real e conexão da organização exclusiva ORBITA. Não há liberação para dados sensíveis. O ORBITA 3.0 **não está integralmente concluído**.
+
+## Adendo de 29/10/2026 — evidência posterior à linha de base
+
+| ID | Situação atual | Evidência e limite |
+| --- | --- | --- |
+| ORB-DATA-002 / ORB-DATA-003 / ORB-SEC-002 | Núcleo Supabase implantado; login/RLS real parcialmente homologados | [`SUPABASE_ACTIVATION_20261024.md`](SUPABASE_ACTIVATION_20261024.md) e [`AUTH_RELEASE_GATE.md`](AUTH_RELEASE_GATE.md): duas sessões Auth/JWT reais, isolamento de registros/chat e limpeza de fixtures em 26/10. O proprietário relatou login e F5 no painel; recuperação e dispositivos ainda pendentes. |
+| ORB-DATA-004 | Prévia de conciliação validada em navegador simulado | `quality/test_task_journey.cjs` verifica GET, ausência de alteração local e invalidação da prévia após edição ou edição durante o GET; leitura UI sob sessão real ainda pendente. A conciliação com escrita não foi acionada nesta entrega. |
+| ORB-FUN-001 / ORB-FUN-003 | Jornada local aprovada no navegador simulado | Criar, editar, concluir, buscar, filtrar, limpar, atualizar indicadores/resumo, F5 e falha de armazenamento verificados em `quality/test_task_journey.cjs`. |
+| ORB-UX-003 / ORB-ACC-001 | Verificação parcial | Sem overflow em 320/390/1280 px, rótulos de busca/filtros e ciclo de foco do modal testados. Isso não equivale a auditoria WCAG 2.2 AA ou teste Safari/Android reais. |
+| ORB-PWA-001 | Regressão local aprovada | `quality/test_service_worker.cjs` passou nesta sessão; atualização real em dispositivo ainda pendente. |
+
+Nesta sessão, `node --test quality/test_cloud_core.cjs quality/test_local_integrity.cjs quality/test_service_worker.cjs` passou com **51/51**. A jornada `node quality/test_task_journey.cjs` e o smoke `python quality/browser_smoke.py` também passaram com Playwright e Chrome locais. A suíte Python do aplicativo, excluindo dois módulos de backup que exigem permissões POSIX, executou **167 testes sem falhas**; a descoberta completa no Windows executou 192 testes, com 18 ignorados, 1 falha e 5 erros nesses módulos. A CI Linux ainda não foi observada para estas alterações. Em consulta administrativa somente leitura em 29/10, o projeto Supabase estava `ACTIVE_HEALTHY` e `public.orbita_records` tinha uma linha; essa consulta não prova RLS pela interface.
+
+## Adendo de 30/10/2026 — interface com sessão real
+
+| ID | Resultado observado | Limite |
+| --- | --- | --- |
+| ORB-SEC-002 | A aba integrada do VS Code estava autenticada e continuou autenticada após recarga. `docs/auth.js` apresenta “Verificando sua sessão” enquanto valida o token. Em navegador simulado, atraso Auth, falha 503 com nova tentativa, resposta 401 e falha temporária na renovação passaram. | As falhas foram simuladas; não testa sessão expirada nem recuperação de senha com conta real. |
+| ORB-DATA-004 | Em **Dados e histórico**, consulta real exibiu 1 registro remoto e 0 locais; a prévia exibiu 1 a receber, 0 a enviar/excluir, 0 conflitos. Após recarga, o dashboard ainda mostrou 1/0. Ver [`REAL_MEMORY_UI_20261030.md`](REAL_MEMORY_UI_20261030.md). | Uma sessão real; não testa isolamento entre contas pela UI nem conciliação com escrita. |

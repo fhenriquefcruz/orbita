@@ -38,6 +38,10 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Smoke test do painel autenticado
         run: python quality/browser_smoke.py
+      - name: Dependência da jornada de tarefas
+        run: npm install --prefix quality --no-save --no-package-lock --ignore-scripts playwright@1.55.0
+      - name: Jornada de tarefas e memória somente leitura
+        run: node quality/test_task_journey.cjs
       - name: Verificação de arquivos sensíveis
         run: |
           test ! -e telegram/.env

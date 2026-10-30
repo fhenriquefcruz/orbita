@@ -77,6 +77,7 @@
     '<button class="orbita-auth-submit" type="submit">Atualizar senha</button>',
     '</form>',
     '<p role="status" aria-live="polite" id="orbitaAuthStatus" class="orbita-auth-status"></p>',
+    '<button id="orbitaAuthRetry" class="orbita-auth-submit" type="button" hidden>Tentar novamente</button>',
     '<div class="orbita-auth-links"><button id="orbitaForgot" class="orbita-auth-link" type="button">Esqueci minha senha</button><button id="orbitaBack" class="orbita-auth-link" type="button" hidden>Voltar ao login</button></div>',
     '<p class="orbita-auth-caption">Acesso restrito aos titulares de contas autorizadas. Seus registros não são públicos.</p>',
     '</div>'
@@ -89,15 +90,23 @@
     $('orbitaAuthLogin').hidden = next !== 'login';
     $('orbitaAuthRecover').hidden = next !== 'recover';
     $('orbitaAuthReset').hidden = next !== 'reset';
+    $('orbitaAuthRetry').hidden = next !== 'retry';
     $('orbitaForgot').hidden = next !== 'login';
-    $('orbitaBack').hidden = next === 'login';
-    $('orbitaAuthTitle').textContent = next === 'reset' ? 'Defina sua nova senha.' :
+    $('orbitaBack').hidden = next === 'login' || next === 'checking';
+    $('orbitaAuthTitle').textContent = next === 'checking' ? 'Verificando sua sessão.' :
+      next === 'retry' ? 'Conexão indisponível.' :
+      next === 'reset' ? 'Defina sua nova senha.' :
       next === 'recover' ? 'Recuperar acesso.' : 'Seu espaço pessoal.';
-    $('orbitaAuthDescription').textContent = next === 'reset' ? 'Escolha uma senha com ao menos 12 caracteres.' :
+    $('orbitaAuthDescription').textContent = next === 'checking' ?
+      'Aguarde enquanto confirmamos seu acesso ao ORBITA.' :
+      next === 'retry' ? 'Sua sessão continua salva nesta aba. Tente verificar o acesso novamente.' :
+      next === 'reset' ? 'Escolha uma senha com ao menos 12 caracteres.' :
       next === 'recover' ? 'Enviaremos um link para o e-mail cadastrado.' :
       'Entre para acessar a sua central e a memória protegida.';
+    root.setAttribute('aria-busy', next === 'checking' ? 'true' : 'false');
     status(message);
     root.hidden = false;
+    if (next === 'retry') $('orbitaAuthRetry').focus();
   }
   function setBusy(value) {
     busy = value;
@@ -302,16 +311,24 @@
       const verified = await getVerifiedUser();
       unlock(verified);
     } catch (err) {
-      // Falha de rede não abre o painel; a sessão pode ser tentada novamente.
-      if (err.status === 401 || err.status === 403) forget();
-      show('login', 'Não foi possível restaurar a sessão. Entre novamente.');
+      // Apenas uma sessão inválida pede novo login; indisponibilidade mantém o token na aba.
+      if ([400, 401, 403].includes(err.status) || !session?.refresh_token) {
+        forget();
+        show('login', 'Sua sessão não pôde ser validada. Entre novamente.');
+      } else {
+        show('retry', 'Não foi possível confirmar a sessão. Verifique a conexão e tente novamente.');
+      }
     }
   }
   $('orbitaAuthLogin').addEventListener('submit', signIn);
   $('orbitaAuthRecover').addEventListener('submit', recover);
   $('orbitaAuthReset').addEventListener('submit', resetPassword);
+  $('orbitaAuthRetry').addEventListener('click', () => { show('checking'); restore(); });
   $('orbitaForgot').addEventListener('click', () => { $('orbitaRecoverEmail').value = $('orbitaAuthEmail').value; show('recover'); });
-  $('orbitaBack').addEventListener('click', () => { if (mode === 'reset') forget(); show('login'); });
+  $('orbitaBack').addEventListener('click', () => {
+    if (mode === 'reset' || mode === 'retry') forget();
+    show('login');
+  });
   const signOutButton = $('orbitaSignOut');
   if (signOutButton) signOutButton.addEventListener('click', signOut);
 
@@ -321,11 +338,16 @@
     getAccessToken: async () => {
       if (!unlocked) throw Error('Faça login para continuar.');
       try { return await token(); }
-      catch (_) { forget(); location.replace(location.pathname); throw Error('Sua sessão expirou.'); }
+      catch (err) {
+        if ([400, 401, 403].includes(err.status)) {
+          forget(); location.replace(location.pathname); throw Error('Sua sessão expirou.');
+        }
+        throw Error('Não foi possível confirmar a conexão. Tente novamente.');
+      }
     },
     onReady: (callback) => { if (unlocked) callback(); else readyCallbacks.push(callback); },
     signOut
   });
-  show('login','Verificando sessão...');
+  show('checking');
   restore();
 })();

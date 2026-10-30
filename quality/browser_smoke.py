@@ -1,6 +1,7 @@
 """Smoke E2E com provedor Auth simulado. Não substitui testes reais de RLS."""
 import http.server
 import json
+import os
 import socketserver
 import threading
 from pathlib import Path
@@ -130,7 +131,13 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
     worker.start()
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        options = {"headless": True}
+        installed_chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+        if os.environ.get("ORBITA_TEST_CHROME"):
+            options["executable_path"] = os.environ["ORBITA_TEST_CHROME"]
+        elif os.name == "nt" and installed_chrome.is_file():
+            options["executable_path"] = str(installed_chrome)
+        browser = playwright.chromium.launch(**options)
         for width in (320, 360, 390, 428, 768, 1024, 1440, 1920):
             context = browser.new_context(viewport={"width": width, "height": 844})
             page = context.new_page()
@@ -297,12 +304,6 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         page.reload(wait_until="networkidle")
         page.locator("#orbitaAuthRoot").wait_for(state="hidden")
         page.wait_for_timeout(800)
-        print("RESTORE DEBUG", page.evaluate("""() => ({
-            stat:document.querySelector('#statOpen')?.textContent,
-            items:document.querySelector('#recordsList')?.textContent.slice(0,200),
-            stored:JSON.parse(localStorage.getItem('orbita_v12_local')||'{}').records?.map(x=>({id:x.id,status:x.status,title:x.title})),
-            route:location.hash, auth:document.documentElement.getAttribute('data-orbita-auth')
-        })"""), "ERR", errors[-5:], flush=True)
         page.wait_for_function(
             "document.querySelector('#statOpen')?.textContent.trim() === '1'", timeout=5000
         )
@@ -327,7 +328,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         second_tab.wait_for_function(
             "document.querySelector('#recordsList')?.textContent.includes('Restaurada do backup')"
         )
-        page.locator('button[data-edit="restored-r1"]').click()
+        page.locator('#recordsList button[data-edit="restored-r1"]').click()
         page.locator("#fNotes").fill("Atualização da aba principal")
         page.locator('#recordForm button[type="submit"]').click()
         page.wait_for_function(
@@ -337,7 +338,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             "document.querySelector('#toast')?.textContent.includes('Outra aba alterou')"
         )
         second_tab.evaluate("window.confirm = () => true")
-        second_tab.locator('button[data-edit="restored-r1"]').click()
+        second_tab.locator('#recordsList button[data-edit="restored-r1"]').click()
         second_tab.locator("#fNotes").fill("Sobrescrita por aba antiga")
         second_tab.locator('#recordForm button[type="submit"]').click()
         second_tab.wait_for_function(
@@ -347,7 +348,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
             "JSON.parse(localStorage.getItem('orbita_v12_local')).records[0].notes"
         ) == "Atualização da aba principal"
         second_tab.locator("#cancelModal").click()
-        second_tab.locator('button[data-delete="restored-r1"]').click()
+        second_tab.locator('#recordsList button[data-delete="restored-r1"]').click()
         second_tab.wait_for_function(
             "document.querySelector('#toast')?.textContent.includes('Falha ao excluir')"
         )
@@ -410,7 +411,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
                 return original.call(this, key, value);
             };
         }""")
-        page.locator('button[data-delete="restored-r1"]').click()
+        page.locator('#recordsList button[data-delete="restored-r1"]').click()
         page.wait_for_function(
             "document.querySelector('#toast')?.textContent.includes('Exclusão cancelada')"
         )
@@ -422,7 +423,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         )
         assert "Restaurada do backup" in page.locator("#recordsList").inner_text()
         page.evaluate("() => { Storage.prototype.setItem = window.__orbitaOriginalSetItem; }")
-        page.locator('button[data-delete="restored-r1"]').click()
+        page.locator('#recordsList button[data-delete="restored-r1"]').click()
         page.wait_for_function(
             "(JSON.parse(localStorage.getItem('orbita_v12_local')||'{}').records||[]).length === 0"
         )
@@ -594,7 +595,7 @@ with ReusableServer(("127.0.0.1", 0), Quiet) as server:
         pull_page.locator('.mobile-nav button[data-view="records"]').click()
         pull_page.locator("#filterStatus").select_option("em_andamento")
         assert "Teste de conciliação" in pull_page.locator("#recordsList").inner_text()
-        pull_page.locator('button[data-edit="tg-1"]').click()
+        pull_page.locator('#recordsList button[data-edit="tg-1"]').click()
         assert pull_page.locator("#fStatus").input_value() == "em_andamento"
         assert remote_methods and set(remote_methods) == {"GET"}, remote_methods
         assert not pull_errors, pull_errors

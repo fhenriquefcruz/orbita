@@ -247,8 +247,12 @@ html[data-orbita-theme="night"] .chip.P3{color:#6FE2C8;background:#1E4744;border
 .profile p{line-height:1.7}
 html[data-orbita-theme="night"] .profile .mark{background:#2B2C55;color:#CAC3FF}
 .filters{gap:10px}
+.filters #clearFilters{align-self:stretch;min-height:42px}
+.filters #clearFilters[hidden]{display:none}
 .action{border-radius:9px;font-weight:750;background:var(--panel);color:var(--muted)}
 .action:hover{background:var(--orbita-hover);color:var(--lime)}
+.entry .action[data-complete]{color:#087A71;border-color:#ADE3D8;background:#E5F8F3}
+html[data-orbita-theme="night"] .entry .action[data-complete]{color:#6FE2C8;border-color:#417569;background:#1E4744}
 .schedule{gap:14px}
 .schedule>div{background:var(--panel);border-radius:16px;border-top:3px solid #6259D1}
 .schedule>div:nth-child(2){border-top-color:#16958C}
@@ -368,6 +372,8 @@ html[data-orbita-theme="night"] .profile:nth-child(n) .mark{background:#303459;c
   .chat-compose button{width:100%}
   .filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
   .filters .input{grid-column:1/-1}
+  .filters #clearFilters{grid-column:1/-1}
+  .entry .actions .action{min-height:42px}
   .schedule{grid-template-columns:1fr}
   .formgrid{grid-template-columns:1fr}
   .field.full{grid-column:auto}

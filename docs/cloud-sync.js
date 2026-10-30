@@ -9,6 +9,7 @@
   const STORE = 'orbita_v12_local', TOMBSTONES = 'orbita_cloud_tombstones_v1';
   const BINDING = 'orbita_cloud_binding_v1';
   let accountId = '', busy = false, dirty = false, inspecting = false, previewing = false;
+  let previewReady = false;
   let lastRemoteCount = null;
   const base = (config.url || '').replace(/\/$/, '');
   const allowed = /^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(base) &&
@@ -150,6 +151,7 @@
   function displayPreview(plan) {
     const message = el('orbitaCloudPreviewStatus');
     if (!message) return;
+    previewReady = true;
     if (plan.conflicts.length) {
       message.textContent = 'Conflitos detectados (' + plan.conflicts.length +
         '): mesmos registros com revisões ambíguas. Nenhuma gravação é permitida; ' +
@@ -164,12 +166,23 @@
     if (!auth.isAuthenticated() || busy || previewing) return;
     const owner = auth.getUser().id;
     previewing = true;
+    previewReady = false;
     renderButtons();
     setText('orbitaCloudPreviewStatus', 'Comparando dados sem gravar...');
     try {
+      const originalStore = localStorage.getItem(STORE);
+      const originalTombstones = localStorage.getItem(TOMBSTONES);
+      const originalBinding = localStorage.getItem(BINDING);
       const local = localData(), deleted = tombstones();
       const remote = await loadCloud();
       if (!sameAccount(owner)) return;
+      if (localStorage.getItem(STORE) !== originalStore ||
+          localStorage.getItem(TOMBSTONES) !== originalTombstones ||
+          localStorage.getItem(BINDING) !== originalBinding) {
+        setText('orbitaCloudPreviewStatus',
+          'Os dados deste dispositivo mudaram durante a simulação. Execute novamente; nada foi gravado.');
+        return;
+      }
       displayPreview(core.reconcile(local.records, remote, deleted));
     } catch (_) {
       if (sameAccount(owner)) setText('orbitaCloudPreviewStatus',
@@ -513,6 +526,11 @@
     window.addEventListener('orbita:local-change', () => {
       if (auth.isAuthenticated()) {
         dirty = true;
+        if (previewReady) {
+          previewReady = false;
+          setText('orbitaCloudPreviewStatus',
+            'A memória local mudou após a simulação. Execute novamente antes de conciliar; nada foi gravado.');
+        }
         mode('Alterações locais pendentes. Clique em “Conciliar registros agora”.');
         const localCount = (() => { try { return localData().records.length } catch (_) { return null } })();
         dashboardStatus((localCount === null ? 'Registros locais inconsistentes' :
