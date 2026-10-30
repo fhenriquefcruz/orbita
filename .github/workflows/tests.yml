@@ -1,7 +1,7 @@
 name: Testes ORBITA
 on:
   push:
-    branches: [main, feat/supabase-auth-protected-panel]
+    branches: [main]
   pull_request:
 permissions:
   contents: read

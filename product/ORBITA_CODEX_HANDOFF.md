@@ -40,7 +40,7 @@ Arquivos da entrega funcional, sujeitos ao estado Git indicado por `git status`:
 - `quality/browser_smoke.py`: usa Chrome instalado quando disponível no Windows e seleciona a ação Editar/Excluir na lista, evitando ambiguidade após a inclusão das ações no dashboard. O Chromium do Playwright continua sendo usado na CI Linux.
 - `docs/cloud-sync.js`: a prévia de conciliação é invalidada quando a memória local muda; uma edição durante a consulta impede a exibição de um plano calculado com dados antigos. O botão de conciliação continua refazendo a comparação antes de qualquer escrita.
 - `docs/auth.js`: durante a restauração assíncrona, exibe verificação sem formulário de login. Uma falha temporária oferece **Tentar novamente** sem descartar a sessão; uma sessão recusada volta ao login. Falha temporária ao renovar o token em um painel aberto também não provoca logout.
-- `.github/workflows/tests.yml`: nova jornada adicionada à CI de PR com Playwright Node 1.55.0, alinhado à versão Python já usada no workflow. A CI remota ainda não foi observada para estas alterações.
+- `.github/workflows/tests.yml`: nova jornada adicionada à CI de PR com Playwright Node 1.55.0, alinhado à versão Python já usada no workflow. O [workflow do PR #7](https://github.com/fhenriquefcruz/orbita/actions/runs/41055169169) e o [workflow de push](https://github.com/fhenriquefcruz/orbita/actions/runs/41055162714) terminaram com sucesso no commit `82d9126`. O gatilho adicional de push na branch foi retirado porque o PR rascunho já dispara a CI.
 - `README.md`, `ROADMAP.md`, `quality/TRACEABILITY.md`: descrições antigas atualizadas; a linha de base histórica da rastreabilidade foi preservada em adendo. `.gitignore` passou a ignorar `node_modules/`.
 
 **Verificação executada nesta conversa:**
@@ -49,7 +49,7 @@ Arquivos da entrega funcional, sujeitos ao estado Git indicado por `git status`:
 2. `node quality/test_task_journey.cjs` com Playwright disponível no ambiente local: **passou**. Cobriu criação, edição, busca sem acentos, filtros, limpeza, cancelamento de conclusão, falha de `localStorage` sem falso sucesso, conclusão, dashboard e resumo, F5, consulta/simulação por GET sem mutação local, invalidação da prévia após edição e durante GET, conclusão pela conversa e ausência de overflow em 320/390/1280 px. Cobriu ciclo de foco do modal e Auth simulado com resposta atrasada, falha 503 recuperável, sessão recusada 401 e falha temporária ao renovar token em painel aberto.
 3. `git diff --check` e `node --check quality/test_task_journey.cjs`: **passaram**.
 4. `python quality/browser_smoke.py`: **passou** no Chrome local com Auth simulado, isolamento, importação unidirecional e proteção contra PATCH concorrente.
-5. Suíte Python do aplicativo, excluindo somente `test_private_database_backup.py` e `test_verify_backup_archive.py`: **167 testes executados, sem falhas**. A descoberta completa executou **192 testes**, com 18 ignorados, 1 falha e 5 erros concentrados nesses dois módulos de backup por exigirem permissões POSIX `0600/0700`, indisponíveis neste Windows. A CI Linux permanece como verificação desses módulos.
+5. Suíte Python do aplicativo, excluindo somente `test_private_database_backup.py` e `test_verify_backup_archive.py`: **167 testes executados, sem falhas**. A descoberta completa executou **192 testes**, com 18 ignorados, 1 falha e 5 erros concentrados nesses dois módulos de backup por exigirem permissões POSIX `0600/0700`, indisponíveis neste Windows. A [CI Linux do PR #7](https://github.com/fhenriquefcruz/orbita/actions/runs/41055169169) passou com a descoberta completa, incluindo esses módulos.
 6. Em 30/10, na aba autenticada do VS Code, consulta UI real mostrou **1 remoto e 0 locais**; a simulação retornou **1 a receber, 0 a enviar/excluir e 0 conflitos**. Após recarga, a sessão permaneceu e os indicadores continuaram 1/0. A regressão com resposta Auth atrasada passou, sem exibir o formulário durante a verificação. Ver [`REAL_MEMORY_UI_20261030.md`](../quality/REAL_MEMORY_UI_20261030.md).
 
 Para executar o teste de navegador em outra máquina, instalar `playwright` para Node e um Chromium compatível. A CI instala `playwright@1.55.0` antes da jornada. O teste usa o Chromium do Playwright quando disponível; neste Windows usou Chrome instalado. Nesta sessão, Playwright 1.55.0 foi instalado somente em `quality/node_modules/` (ignorado pelo Git) e a jornada passou novamente sem `NODE_PATH`. O smoke Python usou dependências temporárias fora do repositório; nenhuma dependência foi adicionada ao aplicativo.
@@ -69,10 +69,10 @@ Não alterar `main`, produção, bancos remotos, migrações bloqueadas, Telegra
 
 ## 6. Próxima ordem de execução
 
-1. Ler este handoff, o Prompt Mestre e `git status`; preservar todas as alterações locais da entrega acima, inclusive as alterações já adicionadas ao índice Git.
+1. Ler este handoff, o Prompt Mestre e `git status`; preservar a branch de trabalho e quaisquer alterações locais antes de editar.
 2. Preservar a evidência de consulta e prévia somente leitura de 30/10. Para aprofundar a homologação, verificar isolamento e falhas com sessões reais separadas sem expor senhas/JWTs; a conciliação com escrita continua fora do escopo autorizado.
 3. Continuar o ciclo de tarefas e UX com teste em navegador real para teclado, foco, mobile e estados de erro; ampliar regressão apenas onde houver risco concreto.
-4. Observar a execução da CI quando houver PR/commit autorizado; corrigir falhas concretas. Manter README, roadmap e rastreabilidade alinhados às evidências posteriores.
+4. Acompanhar a CI do PR rascunho #7 a cada novo commit e corrigir falhas concretas. Manter README, roadmap e rastreabilidade alinhados às evidências posteriores.
 5. Manter `002_action_proposals.sql`, `003_telegram_delivery.sql`, restauração, deploy, flags Telegram e `main` fora do escopo até autorização específica.
 
 **Princípio de prestação de contas:** registrar arquivos alterados, comandos e resultados realmente observados. Teste mockado não equivale a homologação remota. Nenhuma tarefa pendente deve ser marcada como concluída por ausência de erro visível.
