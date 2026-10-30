@@ -16,6 +16,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "telegram"))
 from bot import reply_text, telegram_call  # noqa: E402
 from cloud_memory import CloudMemory  # noqa: E402
+from proposal_transport import inline_keyboard, callback_as_confirmation  # noqa: E402
+from action_proposals import classify_action  # noqa: E402
 
 app = FastAPI(title="ORBITA API", docs_url=None, redoc_url=None, openapi_url=None)
 LOGGER = logging.getLogger("orbita.webhook")
@@ -49,41 +51,92 @@ async def telegram_webhook(request: Request,
         update_id = int(update["update_id"])
     except (ValueError, TypeError, KeyError):
         raise HTTPException(400, "Atualização inválida")
-    message = update.get("message") or {}
-    sender = message.get("from") or {}
+    callback = update.get("callback_query") or {}
+    message = (callback.get("message") if callback else update.get("message")) or {}
+    sender = (callback.get("from") if callback else message.get("from")) or {}
     chat = message.get("chat") or {}
     owner_id = int(cfg["ORBITA_OWNER_ID"])
     if (chat.get("type") != "private" or sender.get("is_bot")
             or int(sender.get("id") or 0) != owner_id
             or int(chat.get("id") or 0) != owner_id):
         return {"ok": True, "ignored": True}
+    # Callback metadata é input não confiável, nunca autorização independente.
+    content = (callback_as_confirmation(callback.get("data")) if callback
+               else (message.get("text") or ""))
+    if callback and not content:
+        return {"ok": True, "ignored": True}
     memory = CloudMemory(cfg["SUPABASE_URL"], cfg["SUPABASE_SECRET_KEY"], cfg["ORBITA_USER_UUID"])
+    # Ativar SOMENTE após homologar infra/supabase/003_telegram_delivery.sql.
+    # No modo legado, mantém-se o comportamento anterior sem usar 'delivered'.
+    verified_delivery = os.environ.get("ORBITA_WEBHOOK_DELIVERY_V2_ENABLED") == "1"
     try:
+        replay = False
+        legacy_replay = False
         if not memory.claim_update(update_id):
             state = memory.get_update(update_id)
-            if state and state.get("status") == "processed":
+            status = state.get("status") if isinstance(state, dict) else None
+            if status == "delivered":
                 return {"ok": True, "duplicate": True}
-            if state and state.get("status") == "replied" and state.get("response"):
-                # Resposta ja preparada: NAO repetir /tarefa, /feito ou chamada a IA.
-                # Telegram nao fornece chave de idempotencia para sendMessage:
-                # a entrega pode ser repetida se o ACK do banco falhar apos o envio.
-                telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage",
-                              {"chat_id": owner_id, "text": state["response"][:3900]},
-                              timeout=10)
+            if status == "processed" and not verified_delivery:
+                return {"ok": True, "duplicate": True}
+
+            # Em main, 'replied' e a fila legada, gravada ANTES do envio.
+            # Reenvio seguro para memoria: NUNCA reexecutar reply_text.
+            if status == "replied":
+                # Uma ativacao futura da V2 nao pode abandonar respostas
+                # legadas ja persistidas antes do envio.
+                answer = state.get("response")
+                if not isinstance(answer, str) or not answer.strip():
+                    return {"ok": True, "pending": True}
+                replay = True
+                legacy_replay = True
+            elif status == "processed" and verified_delivery:
+                answer = state.get("response")
+                if not isinstance(answer, str) or not answer.strip():
+                    return {"ok": True, "pending": True}
+                replay = True
+            else:
+                # 'received' sem resposta nao pode disparar comando novamente.
+                return {"ok": True, "pending": True}
+        else:
+            answer = reply_text(content, owner_id, memory,
+                                os.environ.get("OPENAI_API_KEY", "").strip(),
+                                os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
+            if verified_delivery:
+                # V2: guarda 'processed' antes de enviar; so apos envio
+                # comprovado tenta concluir em 'delivered'.
+                memory.finish_update(update_id, answer)
+            else:
+                # Legado: guarda 'replied' antes de enviar; 'processed'
+                # somente depois de sendMessage retornar sucesso.
+                memory.stage_reply(update_id, answer)
+        payload = {"chat_id": owner_id, "text": answer[:3900]}
+        buttons = inline_keyboard(answer) if not callback and classify_action(content) else None
+        if buttons:
+            payload["reply_markup"] = buttons
+        # Se sendMessage falhar, o Telegram repetirá o update. Com v2 ativo,
+        # recuperamos a resposta salva sem recriar a tarefa.
+        telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage", payload, timeout=10)
+        if verified_delivery:
+            if legacy_replay:
+                # Replied (legado) -> processed -> delivered. Nao executar
+                # novamente a tarefa ao mudar a flag de entrega.
                 memory.finish_update(update_id)
-                return {"ok": True, "resumed": True}
-            # Claim "received" sem resposta exige investigacao: nao executar
-            # novamente comandos que podem modificar a memoria sem deduplicacao.
-            return {"ok": True, "pending": True}
-        content = message.get("text") or ""
-        answer = reply_text(content, owner_id, memory,
-                            os.environ.get("OPENAI_API_KEY", "").strip(),
-                            os.environ.get("OPENAI_MODEL", "gpt-5-mini"))
-        memory.stage_reply(update_id, answer)
-        telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "sendMessage",
-                      {"chat_id": owner_id, "text": answer[:3900]}, timeout=10)
-        memory.finish_update(update_id)
-        return {"ok": True}
+            if not memory.mark_delivered(update_id):
+                # Entrega pode ter ocorrido. Ao repetir pode chegar mensagem dupla,
+                # mas a ação de registro não é reexecutada (sem falsa promessa exactly-once).
+                raise RuntimeError("Falha ao confirmar estado de entrega do Telegram")
+        else:
+            # Confirma SOMENTE apos sendMessage bem-sucedido. Em caso de falha,
+            # 'replied' e a resposta persistida permanecem para o retry.
+            memory.finish_update(update_id)
+        if callback.get("id"):
+            try:
+                telegram_call(cfg["TELEGRAM_BOT_TOKEN"], "answerCallbackQuery",
+                              {"callback_query_id": callback["id"]}, timeout=10)
+            except Exception as exc:
+                LOGGER.warning("Falha ao reconhecer botão Telegram (%s)", type(exc).__name__)
+        return {"ok": True, "replayed": True} if replay else {"ok": True}
     except HTTPException:
         raise
     except Exception as exc:

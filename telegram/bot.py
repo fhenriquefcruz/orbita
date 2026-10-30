@@ -13,7 +13,9 @@ import re
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from action_proposals import classify_action, parse_confirmation, new_code, preview, check_proposal
+from proposal_transport import inline_keyboard, callback_as_confirmation
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -42,10 +44,12 @@ HELP = (
     "/ideia Nova proposta de aplicativo — guarda uma ideia\n"
     "/ideias — lista ideias\n"
     "/feito 3 — conclui a tarefa 3\n"
+    "Peça: Vânia, anote que preciso enviar o relatório — prepara confirmação\n"
+    "Responda confirmar CÓDIGO ou cancelar CÓDIGO antes de registrar\n"
     "/resumo — prévia manual do resumo\n"
     "/limparconversa — apaga o histórico local do chat com IA\n\n"
     "Mensagens livres são respondidas pela IA se uma chave OpenAI estiver configurada. "
-    "A conversa livre é somente consultiva: alterações exigem comandos explícitos. "
+    "Pedidos naturais de tarefas e ideias geram propostas, nunca gravações imediatas. "
     "Notificações e resumos automáticos estão DESATIVADOS."
 )
 
@@ -103,6 +107,21 @@ class Memory:
               content TEXT NOT NULL,
               created_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS action_proposals (
+              code TEXT PRIMARY KEY,
+              owner_id INTEGER NOT NULL,
+              kind TEXT NOT NULL CHECK (kind IN ('tarefa','ideia')),
+              title TEXT NOT NULL,
+              priority TEXT NOT NULL CHECK (priority IN ('P0','P1','P2','P3')),
+              status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending','confirmed','cancelled','expired')),
+              record_id INTEGER,
+              created_at TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              FOREIGN KEY (record_id) REFERENCES records(id)
+            );
+            CREATE INDEX IF NOT EXISTS action_proposals_owner_idx
+              ON action_proposals (owner_id, expires_at);
         """)
         self.db.commit()
 
@@ -121,6 +140,60 @@ class Memory:
         )
         self.db.commit()
         return int(cursor.lastrowid)
+
+    def create_proposal(self, owner_id: int, kind: str, title: str,
+                        priority: str, code: str) -> None:
+        check_proposal(kind, title, priority, code)
+        now = datetime.now(timezone.utc)
+        self.db.execute(
+            "INSERT INTO action_proposals(code,owner_id,kind,title,priority,status,created_at,expires_at)"
+            " VALUES (?,?,?,?,?,'pending',?,?)",
+            (code, owner_id, kind, title, priority, now.isoformat(),
+             (now + timedelta(minutes=15)).isoformat()))
+        self.db.commit()
+
+    def confirm_proposal(self, owner_id: int, code: str) -> tuple[str, int | None]:
+        if not code or len(code) != 12:
+            return "missing", None
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            row = self.db.execute(
+                "SELECT * FROM action_proposals WHERE code=? AND owner_id=?",
+                (code, owner_id)).fetchone()
+            if not row:
+                result = ("missing", None)
+            elif row["status"] == "confirmed":
+                result = ("already", row["record_id"])
+            elif row["status"] != "pending":
+                result = (row["status"], None)
+            elif datetime.fromisoformat(row["expires_at"]) <= datetime.now(timezone.utc):
+                self.db.execute("UPDATE action_proposals SET status='expired' WHERE code=?", (code,))
+                result = ("expired", None)
+            else:
+                now = now_iso()
+                cursor = self.db.execute(
+                    "INSERT INTO records(owner_id,kind,title,priority,status,created_at,updated_at)"
+                    " VALUES(?,?,?,?,?,?,?)",
+                    (owner_id,row["kind"],row["title"],row["priority"],
+                     "aberta",now,now))
+                rid = int(cursor.lastrowid)
+                self.db.execute(
+                    "UPDATE action_proposals SET status='confirmed',record_id=? WHERE code=?",
+                    (rid,code))
+                result = ("saved", rid)
+            self.db.commit()
+            return result
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def cancel_proposal(self, owner_id: int, code: str) -> bool:
+        cursor = self.db.execute(
+            "UPDATE action_proposals SET status='cancelled'"
+            " WHERE code=? AND owner_id=? AND status='pending'",
+            (code,owner_id))
+        self.db.commit()
+        return cursor.rowcount == 1
 
     def list(self, owner_id: int, kind: str | None = None, limit: int = 30) -> list[dict]:
         sql = "SELECT id,kind,title,priority,status,created_at FROM records WHERE owner_id=?"
@@ -203,9 +276,19 @@ def assistant_instructions(mem: Memory, owner_id: int) -> str:
         "Você é Vânia, coordenadora do ORBITA, assistente pessoal em português brasileiro. "
         "Você pode consultar perspectivas dos seguintes personagens, sem fingir que são pessoas reais: "
         + "; ".join(PERSONAS.values()) + ". "
-        "Mantenha respostas naturais, úteis e precisas. "
+        "Converse em português brasileiro de modo natural, acolhedor e profissional. "
+        "Considere o contexto das mensagens anteriores para interpretar referências como "
+        "'isso', 'aquela tarefa' e 'continue', sem inventar detalhes ausentes. "
+        "Dê respostas objetivas por padrão e amplie somente quando o usuário pedir. "
+        "Evite listas e saudações repetitivas quando uma conversa direta for mais adequada. "
+        "Se faltar informação essencial, faça uma pergunta específica. "
+        "Diferencie claramente aconselhar, sugerir e executar uma ação. "
         "Não diga que criou, alterou, concluiu ou agendou uma tarefa por conversa livre. "
-        "Nesta versão, ações de gravação acontecem EXCLUSIVAMENTE por comandos explícitos: /tarefa, /ideia e /feito. "
+        "Pedidos naturais explícitos de anotar tarefas/ideias geram propostas em separado; "
+        "a execução só acontece após o usuário confirmar o código da proposta. "
+        "Não declare tarefas gravadas sem confirmação efetiva no banco. "
+        "Outras operações exigem EXCLUSIVAMENTE comandos explícitos: /tarefa, /ideia e /feito. "
+        "Para pedidos fora do escopo, explique brevemente que ainda não os executa. "
         "Não há integração com calendário nem notificações automáticas. "
         "Se solicitado sobre agenda, diga que ela não está sincronizada. "
         "Prioridades P0/P1 são importantes, mas alertas noturnos não estão ativados. "
@@ -217,13 +300,13 @@ def assistant_instructions(mem: Memory, owner_id: int) -> str:
 
 
 def call_openai(mem: Memory, owner_id: int, user_text: str, api_key: str, model: str) -> str:
-    history = mem.history(owner_id, 10)
+    history = mem.history(owner_id, 16)
     history.append({"role": "user", "content": user_text[:6000]})
     payload = {
         "model": model,
         "instructions": assistant_instructions(mem, owner_id),
         "input": history,
-        "max_output_tokens": 850,
+        "max_output_tokens": 1100,
         "store": False,
     }
     data = json.dumps(payload).encode("utf-8")
@@ -240,6 +323,11 @@ def call_openai(mem: Memory, owner_id: int, user_text: str, api_key: str, model:
             if c.get("type") == "output_text" and c.get("text"):
                 parts.append(c["text"])
     return "\n".join(parts).strip() or "Não consegui montar a resposta. Tente novamente."
+
+
+def natural_actions_enabled(mem) -> bool:
+    """Cloud habilita somente após migração e homologação; SQLite é local e seguro."""
+    return isinstance(mem, Memory) or os.environ.get("ORBITA_NATURAL_ACTIONS_ENABLED") == "1"
 
 
 def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> str:
@@ -273,7 +361,9 @@ def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> 
     if cmd == "/feito":
         if not rest.isdecimal():
             return "Use /feito 3 (substituindo 3 pelo número da tarefa)."
-        return "✅ Tarefa concluída." if mem.complete(uid, int(rest)) else "Não encontrei essa tarefa em aberto."
+        return ("✅ Tarefa concluída." if mem.complete(uid, int(rest)) else
+                "Não foi possível concluir: a tarefa pode ter sido finalizada ou alterada por outro dispositivo. "
+                "Envie /tarefas para conferir a situação atual e, se necessário, tente novamente.")
     if cmd == "/resumo":
         return summary(mem, uid)
     if cmd == "/limparconversa":
@@ -281,6 +371,30 @@ def reply_text(text: str, uid: int, mem: Memory, ai_key: str, ai_model: str) -> 
         return "Histórico local de conversa apagado. Tarefas e ideias permanecem registradas."
     if cmd.startswith("/"):
         return "Comando não reconhecido. Use /ajuda."
+    confirmation = parse_confirmation(raw)
+    if confirmation:
+        if not natural_actions_enabled(mem):
+            return "As confirmações naturais ainda estão em homologação neste servidor. Nenhum dado foi alterado."
+        operation, code = confirmation
+        if operation == "cancel":
+            return ("Proposta cancelada. Nenhum registro foi criado."
+                    if mem.cancel_proposal(uid, code)
+                    else "Essa proposta não está pendente ou não pertence a esta conta.")
+        outcome, rid = mem.confirm_proposal(uid, code)
+        if outcome == "saved":
+            return f"✅ Confirmação recebida. Registro #{rid} salvo na memória ORBITA."
+        if outcome == "already":
+            return f"Essa proposta já estava registrada como #{rid}. Não criei uma duplicata."
+        return ("Não gravei nada: proposta não encontrada, cancelada ou expirada. "
+                "Peça novamente para gerar outra proposta.")
+    proposed = classify_action(raw)
+    if proposed:
+        if not natural_actions_enabled(mem):
+            return ("Já entendi seu pedido, mas o registro natural ainda não está ativado neste servidor. "
+                    "Enquanto isso, use /tarefa ou /ideia. Nenhum dado foi alterado.")
+        code = new_code()
+        mem.create_proposal(uid, proposed.kind, proposed.title, proposed.priority, code)
+        return preview(proposed.kind, proposed.title, proposed.priority, code)
     if not ai_key:
         return (
             "Sou a Vânia. A ponte com o Telegram está funcionando! ✅\n\n"
@@ -349,7 +463,7 @@ def main() -> int:
     try:
         while True:
             try:
-                updates = telegram_call(token, "getUpdates", {"offset": offset, "timeout": 22, "allowed_updates": ["message"]}, timeout=30)
+                updates = telegram_call(token, "getUpdates", {"offset": offset, "timeout": 22, "allowed_updates": ["message", "callback_query"]}, timeout=30)
             except (HTTPError, URLError, TimeoutError, RuntimeError) as e:
                 label = e.code if isinstance(e, HTTPError) else type(e).__name__
                 LOG.warning("Falha no polling Telegram (%s), tentando novamente", label)
@@ -357,14 +471,21 @@ def main() -> int:
                 continue
             for event in updates:
                 offset = max(offset, event["update_id"] + 1)
-                msg = event.get("message") or {}
+                callback = event.get("callback_query") or {}
+                msg = (callback.get("message") if callback else event.get("message")) or {}
                 chat = msg.get("chat") or {}
-                sender = msg.get("from") or {}
+                sender = (callback.get("from") if callback else msg.get("from")) or {}
                 if chat.get("type") != "private" or sender.get("is_bot") or not sender.get("id"):
                     continue
                 uid = int(sender["id"])
                 chat_id = chat["id"]
-                message = msg.get("text", "")
+                if callback and chat_id != owner_id:
+                    continue
+                # Não executar callback desconhecido; somente códigos e ações permitidos.
+                message = (callback_as_confirmation(callback.get("data")) if callback
+                           else msg.get("text", ""))
+                if callback and not message:
+                    continue
                 if owner_id == 0:
                     result = (f"Seu Telegram ID é {uid}. Configure ORBITA_OWNER_ID no .env e reinicie o bot."
                               if message.strip().lower().startswith(("/id", "/start"))
@@ -378,11 +499,24 @@ def main() -> int:
                         LOG.exception("Erro interno no processamento do comando")
                         result = "Não consegui processar a solicitação. Tente novamente."
                 for i in range(0, len(result), 3900):
+                    payload = {"chat_id": chat_id, "text": result[i:i+3900]}
+                    if i == 0:
+                        keyboard = inline_keyboard(result) if not callback and classify_action(message) else None
+                        if keyboard:
+                            payload["reply_markup"] = keyboard
                     try:
-                        telegram_call(token, "sendMessage", {"chat_id": chat_id, "text": result[i:i+3900]}, timeout=12)
+                        telegram_call(token, "sendMessage", payload, timeout=12)
                     except (HTTPError, URLError, TimeoutError, RuntimeError) as e:
                         code = e.code if isinstance(e, HTTPError) else type(e).__name__
                         LOG.warning("Falha ao enviar mensagem Telegram (%s)", code)
+                if callback.get("id"):
+                    # Confirma a recepção para encerrar o spinner do Telegram;
+                    # isto não substitui a verificação de gravação do banco.
+                    try:
+                        telegram_call(token, "answerCallbackQuery",
+                                      {"callback_query_id": callback["id"]}, timeout=10)
+                    except (HTTPError, URLError, TimeoutError, RuntimeError):
+                        LOG.warning("Não foi possível reconhecer o botão no Telegram")
     except KeyboardInterrupt:
         print("ORBITA finalizado pelo operador.")
         return 0

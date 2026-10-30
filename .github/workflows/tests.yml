@@ -21,13 +21,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Testes de conciliação de memória no navegador
-        run: node --test quality/test_cloud_core.cjs
+      - name: Testes de conciliação e integridade da memória local
+        run: node --test quality/test_cloud_core.cjs quality/test_local_integrity.cjs quality/test_service_worker.cjs
       - name: Validação da sintaxe JavaScript
         run: |
+          node --check docs/local-integrity.js
+          node --check docs/auth.js
           node --check docs/cloud-core.js
           node --check docs/cloud-sync.js
+          node --check docs/theme.js
           node --check docs/sw.js
+          test -s docs/design-aurora.css
+      - name: Instalar navegador de teste
+        run: |
+          python -m pip install playwright==1.55.0
+          python -m playwright install --with-deps chromium
+      - name: Smoke test do painel autenticado
+        run: python quality/browser_smoke.py
+      - name: Dependência da jornada de tarefas
+        run: npm install --prefix quality --no-save --no-package-lock --ignore-scripts playwright@1.55.0
+      - name: Jornada de tarefas e memória somente leitura
+        run: node quality/test_task_journey.cjs
       - name: Verificação de arquivos sensíveis
         run: |
           test ! -e telegram/.env
@@ -44,3 +58,400 @@ jobs:
               if re.search(r'(?<![A-Za-z0-9])\d{8,12}:AA[A-Za-z0-9_-]{25,}',s): leaked.append(str(p))
           if leaked: sys.exit('Possível token Telegram incluído: '+', '.join(leaked))
           PYSCAN
+  windows-backup-safety:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar sintaxe dos scripts de backup no PowerShell Windows
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $files = @(
+            ".\\quality\\private_database_backup_windows.ps1",
+            ".\\quality\\verify_database_backup_windows.ps1",
+            ".\\quality\\private_restore_preflight_windows.ps1",
+            ".\\quality\\private_restore_native_windows_preflight.ps1",
+            ".\\quality\\private_restore_native_windows_cluster.ps1",
+            ".\\quality\\private_restore_archive_inventory_windows.ps1",
+            ".\\quality\\private_restore_native_windows_verify.ps1",
+            ".\\quality\\private_restore_native_windows_diagnose.ps1",
+            ".\\quality\\private_restore_native_windows_log_evidence.ps1",
+            ".\\quality\\private_restore_native_windows_stability.ps1",
+            ".\\quality\\private_restore_native_windows_detached_start.ps1",
+            ".\\quality\\private_restore_native_windows_readiness.ps1",
+            ".\\quality\\private_restore_native_windows_local_auth.ps1",
+            ".\\quality\\private_restore_readiness_summary_windows.ps1"
+          )
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path -LiteralPath $file).Path, [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count -gt 0) {
+              foreach ($parseError in $errors) {
+                Write-Output ("PARSER: line=" + $parseError.Extent.StartLineNumber + "; id=" + $parseError.ErrorId)
+              }
+              throw "Falha de sintaxe no script de backup $file."
+            }
+            Write-Output "PowerShell 5.1: sintaxe validada"
+          }
+      - name: Confirmar sondagem npx offline no preflight
+        shell: powershell
+        run: |
+          $text = Get-Content ".\\quality\\private_restore_preflight_windows.ps1" -Raw
+          if ($text -notmatch '--offline --yes supabase --version') {
+            throw "A verificacao via npx deve ser exclusivamente offline."
+          }
+          if ($text -notmatch 'npx.cmd' -or $text -notmatch 'Supabase CLI: DISPONIVEL') {
+            throw "O fallback de CLI via npx.cmd desapareceu."
+          }
+          if ($text -match 'supabase (db push|db reset|link)') {
+            throw "Operacao remota ou destrutiva nao permitida no preflight."
+          }
+          Write-Output "Fallback npx offline preservado; sem alteracao de banco."
+      - name: Exercitar preflight PostgreSQL nativo sem dados na CI
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\quality\private_restore_native_windows_preflight.ps1" -ToolsOnly)
+          if ($LASTEXITCODE -ne 0) {
+            throw "Preflight nativo falhou."
+          }
+          $joined = $output -join [Environment]::NewLine
+          if ($joined -notmatch 'BACKUP: verificacao pulada' -or
+              $joined -notmatch 'SEGURANCA: nenhuma instalacao' -or
+              $joined -notmatch 'restauracao completa NAO COMPROVADA') {
+            throw "Invariantes de seguranca ausentes no preflight nativo."
+          }
+          Write-Output "Preflight PostgreSQL nativo: leitura apenas, sem backup privado na CI."
+      - name: Garantir isolamento da recuperacao nativa
+        shell: powershell
+        run: |
+          $text = Get-Content ".\quality\private_restore_native_windows_preflight.ps1" -Raw
+          if ($text -notmatch 'LocalAddress -eq "0.0.0.0"' -or
+              $text -notmatch 'LocalAddress -eq "::"') {
+            throw "Preflight nao sinaliza listeners wildcard."
+          }
+          if ($text -notmatch '55432' -or $text -notmatch 'restauracao completa NAO COMPROVADA') {
+            throw "Gate de isolamento/restauracao foi removido."
+          }
+          if ($text -match '(?m)^\s*(?:&\s*[\w$]+\s+)?(?:pg_restore|dropdb|initdb|createdb)\s') {
+            throw "Nao se permite restauracao/criacao no preflight diagnostico."
+          }
+          Write-Output "Gate nativo: sem escrita; 5432 reservada e restauracao ainda pendente."
+      - name: Validar guardas e exercitar somente -Check do cluster isolado
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = Get-Content ".\quality\private_restore_native_windows_cluster.ps1" -Raw
+          if ($script -notmatch 'ORBITA-ISOLATED-55432' -or
+              $script -notmatch 'port = 55432' -or
+              $script -notmatch "listen_addresses = '127\.0\.0\.1'" -or
+              $script -notmatch 'scram-sha-256' -or
+              $script -notmatch '--pwprompt') {
+            throw "Protecoes de cluster local incompletas."
+          }
+          if ($script -match '(?m)^\s*(?:&\s*[\w$]+\s+)?pg_restore\s' -or
+              $script -match '(?m)^\s*(?:&\s*[\w$]+\s+)?dropdb\s') {
+            throw "Cluster manager nao pode executar restore nem apagar databases."
+          }
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File ".\quality\private_restore_native_windows_cluster.ps1" -Check)
+          if ($LASTEXITCODE -ne 0) { throw "Check Windows falhou." }
+          $joined = $output -join [Environment]::NewLine
+          if ($joined -notmatch 'CHECK LOCAL' -or
+              $joined -notmatch 'SEGURANCA: nenhuma criacao de arquivos') {
+            throw "Modo somente leitura ausente."
+          }
+          Write-Output "Cluster isolado: parser e -Check aprovados sem criar qualquer banco."
+      - name: Testar inventario offline e isolamento sem arquivos privados
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $scripts = @(
+            ".\quality\private_restore_archive_inventory_windows.ps1",
+            ".\quality\private_restore_native_windows_verify.ps1"
+          )
+          foreach ($script in $scripts) {
+            $results = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+            if ($LASTEXITCODE -ne 0 -or
+                ($results -join " ") -notmatch 'AUTOTESTE APROVADO') {
+              throw "Autoteste Windows offline falhou: $script"
+            }
+          }
+          $inventory = Get-Content ".\quality\private_restore_archive_inventory_windows.ps1" -Raw
+          $verify = Get-Content ".\quality\private_restore_native_windows_verify.ps1" -Raw
+          if ($inventory -notmatch 'pgRestore --list' -or
+              $inventory -match 'pgRestore .*--dbname' -or
+              $verify -notmatch '127.0.0.1' -or $verify -notmatch 'postmaster.pid') {
+            throw "Protecao de inventario/identidade local ausente."
+          }
+          Write-Output "Aurora 3.37: analisadores offline OK, sem backup ou cluster de CI."
+      - name: Diagnosticar start transitorio com logs sinteticos e sem expor dados
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_diagnose.ps1"
+          $results = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($results -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste de classificacao sanitizada falhou."
+          }
+          $source = Get-Content $script -Raw
+          if ($source -notmatch 'Get-Content -LiteralPath \$log -Tail 300' -or
+              $source -notmatch 'Get-EventCategory' -or
+              $source -match '(?m)^\s*(?:pg_restore|dropdb|initdb|createdb|pg_ctl start)\s') {
+            throw "Guardas de privacidade/leitura do diagnostico ausentes."
+          }
+          Write-Output "Diagnostico de inicio/encerramento validado sem revelar logs."
+      - name: Validar evidencia de log Aurora 3.39 com dados sinteticos
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_log_evidence.ps1"
+          $result = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($result -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Falha no classificador offline 3.39."
+          }
+          $source = Get-Content $script -Raw
+          if ($source -notmatch 'Assert-PrivateItem' -or
+              $source -notmatch 'Get-Content -LiteralPath \$log -Tail 300' -or
+              $source -notmatch 'Get-LogCategory' -or
+              $source -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_ctl|pg_restore|initdb|dropdb|createdb|psql|postgres)\s') {
+            throw "Guardas de privacidade/nao escrita do diagnostico 3.39 falharam."
+          }
+          Write-Output "Aurora 3.39: classificador sintetico e leitura limitada aprovados."
+          # Regressao 3.40: PowerShell trata $pid como a variavel automatica $PID
+          # (somente leitura), sem diferenciar maiusculas e minusculas.
+          $tokens = $null
+          $parseErrors = $null
+          $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path -LiteralPath $script).Path, [ref]$tokens, [ref]$parseErrors
+          )
+          if ($parseErrors.Count -ne 0) { throw "Script 3.40 nao passou no parser." }
+          $forbiddenAssignments = @($ast.FindAll({
+            param($node)
+            if ($node -isnot [System.Management.Automation.Language.AssignmentStatementAst]) {
+              return $false
+            }
+            $left = $node.Left
+            return ($left -is [System.Management.Automation.Language.VariableExpressionAst] -and
+              @("pid","host","pshome") -contains $left.VariablePath.UserPath.ToLowerInvariant())
+          }, $true))
+          if ($forbiddenAssignments.Count -gt 0 -or
+              $source -notmatch '\$postmasterPidFile\s*=\s*Join-Path\s+\$data\s+"postmaster\.pid"') {
+            throw "Colisao com variavel automatica de PowerShell no diagnostico 3.40."
+          }
+          Write-Output "Aurora 3.40: verificacao AST contra variaveis automaticas reservadas aprovada."
+          # Regressao 3.41: a leitura nunca devolve conteudo bruto ou timestamps.
+          if ($source -notmatch 'Get-Milestones' -or
+              $source -notmatch 'MARCOS_RELEVANTES' -or
+              $source -notmatch 'PEDIDO_RECONHECIDO_ENTRE_MARCOS' -or
+              $source -notmatch 'Get-Content -LiteralPath \$log -Tail 300' -or
+              $source -notmatch 'AVISO: ausencia de categoria' -or
+              $source -match '(?m)^\s*(?:Write-Output|Write-Host)\s+\$line\b' -or
+              $source -match '(?m)^\s*(?:Write-Output|Write-Host)\s+\$lines\b') {
+            throw "Protecoes de sequencia e sigilo da Aurora 3.41 ausentes."
+          }
+          Write-Output "Aurora 3.41: ordem sintetica e redacao de log aprovadas."
+          # Regressao 3.42: short shutdown, distinção checkpoint/pedido e indicios de console.
+          if ($source -notmatch 'EXCECAO_CONSOLE_RECONHECIDA_ENTRE_MARCOS' -or
+              $source -notmatch 'CHECKPOINT shutdown immediate NAO comprova parada abrupta' -or
+              $source -notmatch 'RECUPERACAO_APOS_QUEDA' -or
+              $source -notmatch 'LOG: shutting down' -or
+              $source -notmatch 'Autoteste de desligamento normal' -or
+              $source -match '(?m)^\s*(?:pg_ctl|pg_restore|createdb|dropdb|initdb)\s') {
+            throw "Guardas de diagnostico da Aurora 3.42 incompletas."
+          }
+          Write-Output "Aurora 3.42: desligamento curto e indicios de console validados sem dados reais."
+      - name: Verificar observador passivo Aurora 3.43 sem ligar banco
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_stability.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or
+              ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico de estabilidade 3.43 falhou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'private_restore_native_windows_verify.ps1' -or
+              $source -notmatch 'Start-Sleep -Seconds \$delay' -or
+              $source -notmatch 'ATIVO_E_ISOLADO_NA_JANELA_DE_60_SEGUNDOS' -or
+              $source -notmatch 'RESTAURACAO BLOQUEADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_ctl|pg_restore|createdb|dropdb|initdb|psql|postgres|Start-Process|Stop-Process)\b') {
+            throw "Observador 3.43 perdeu garantia de leitura ou classificacao."
+          }
+          Write-Output "Aurora 3.43: observacao passiva e casos de falha testados sem cluster."
+      - name: Exigir pre-gate de politica de execucao sem alteracao permanente
+        shell: powershell
+        run: |
+          $guide = Get-Content ".\quality\NATIVE_WINDOWS_SUPERVISED_START_3_43.md" -Raw
+          if ($guide -notmatch 'Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned' -or
+              $guide -notmatch 'MachinePolicy' -or
+              $guide -notmatch 'UserPolicy' -or
+              $guide -notmatch 'NAO executar Gate B' -or
+              $guide -match 'Set-ExecutionPolicy -Scope (LocalMachine|CurrentUser)') {
+            throw "Guia Windows precisa bloquear Gate B diante de policy restritiva e usar apenas escopo Process."
+          }
+          Write-Output "Aurora 3.43: guia de politica restrita ao processo e gate explicito OK."
+      - name: Aurora 3.44 no-console one-shot com casos sinteticos
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_detached_start.ps1"
+          $result = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($result -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico da Aurora 3.44 falhou."
+          }
+          $text = Get-Content -LiteralPath $script -Raw
+          if ($text -notmatch 'ORBITA-ISOLATED-55432' -or
+              $text -notmatch 'private_restore_native_windows_verify.ps1' -or
+              $text -notmatch 'CreateNoWindow = \$true' -or
+              $text -notmatch 'RedirectStandardOutput = \$true' -or
+              $text -notmatch 'RedirectStandardError = \$true' -or
+              $text -notmatch 'ProcessStartInfo' -or
+              $text -notmatch 'Test-VerifiedStopped' -or
+              $text -notmatch 'Test-VerifiedActive' -or
+              $text -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $text -match '(?m)^\s*(?:pg_restore|initdb|dropdb|createdb|psql|Start-Service|Stop-Service|Register-ScheduledTask|New-Service)\s' -or
+              $text -match 'StartDetached\s*-eq\s*\$true') {
+            throw "Guardas de isolamento ou falta de retry da Aurora 3.44 falharam."
+          }
+          # Modo -SelfTest ja cobre token invalido sem passar pelo modo de inicializacao.
+          # A CI jamais invoca -StartDetached, mesmo com token vazio.
+          Write-Output "Aurora 3.44: confirmacao e configuracao sem console validadas offline."
+      - name: Aurora 3.45 processo finalizado independe de EOF dos pipes
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_detached_start.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Regressao 3.45: teste sintetico nao passou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'Get-PgCtlResult' -or
+              $source -notmatch 'Get-PgCtlResult \$true 0 \$false \$false' -or
+              $source -notmatch '\$exited = \[bool\]\$child.WaitForExit\(45000\)' -or
+              $source -notmatch '\$exitCode = \[int\]\$child.ExitCode' -or
+              $source -notmatch 'Test-VerifiedActive \$after' -or
+              $source -match '\$outTask\.Wait\(' -or
+              $source -match '\$errTask\.Wait\(' -or
+              $source -match '\$outTask\.Result' -or
+              $source -match '\$errTask\.Result') {
+            throw "Regressao 3.45: EOF de stdout/stderr nao pode bloquear gate do pg_ctl."
+          }
+          Write-Output "Aurora 3.45: simulacao de processo encerrado com pipe aberto aprovada."
+      - name: Aurora 3.46 prontidao pg_isready somente testes sinteticos
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_readiness.ps1"
+          $out = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($out -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico Aurora 3.46 falhou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'private_restore_native_windows_verify.ps1' -or
+              $source -notmatch 'Test-IsolatedActive' -or
+              $source -notmatch 'Get-SafeReadiness' -or
+              $source -notmatch 'GATE: PRONTIDAO_TCP_APROVADA' -or
+              $source -notmatch '\$readyBin -h "127.0.0.1" -p "55432"' -or
+              $source -notmatch '\-q -t "3"' -or
+              $source -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_restore|initdb|dropdb|createdb|psql|postgres|Start-Process|Stop-Process|Start-Service|Stop-Service|pg_ctl)\b') {
+            throw "Aurora 3.46 nao preserva alvo fixo e modos nao invasivos."
+          }
+          Write-Output "Aurora 3.46: leitura isolada e classificacao de retorno aprovadas sem conexoes reais."
+      - name: Aurora 3.47 autenticar SOMENTE sandbox local com autoteste sintetico
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_native_windows_local_auth.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Autoteste sintetico Aurora 3.47 falhou."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'Test-ReadyGate' -or
+              $source -notmatch 'Test-Confirm' -or
+              $source -notmatch 'ORBITA-ISOLATED-55432' -or
+              $source -notmatch 'Read-Host -Prompt .* -AsSecureString' -or
+              $source -notmatch 'SecureStringToBSTR' -or
+              $source -notmatch 'ZeroFreeBSTR' -or
+              $source -notmatch 'PGPASSWORD' -or
+              $source -notmatch 'private_restore_native_windows_readiness.ps1' -or
+              $source -notmatch 'ProcessStartInfo' -or
+              $source -notmatch '\-p "55432"' -or
+              $source -notmatch '\-c "\\conninfo"' -or
+              $source -notmatch 'RESTAURACAO NAO EXECUTADA' -or
+              $source -match '(?m)^\s*(?:&\s*)?(?:pg_restore|pg_ctl|initdb|dropdb|createdb|Start-Service|Stop-Service|Start-Process)\b' -or
+              $source -match '(?mi)^\s*(?:Write-Output|Write-Host)\s+\$(?:plainPassword|securePassword)\b') {
+            throw "3.47 nao preservou senha oculta, destino fixo ou preflight."
+          }
+          Write-Output "Aurora 3.47: SCRAM local sintético aprovado, CI jamais solicita senha ou acessa banco."
+      - name: Aurora 3.48 modelo de compatibilidade do TOC sem backup privado
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $inventory = ".\quality\private_restore_archive_inventory_windows.ps1"
+          $summary = ".\quality\private_restore_readiness_summary_windows.ps1"
+          foreach ($script in @($inventory,$summary)) {
+            $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+            if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+              throw "Aurora 3.48: autoteste sintetico falhou."
+            }
+          }
+          $inv = Get-Content -LiteralPath $inventory -Raw
+          $sum = Get-Content -LiteralPath $summary -Raw
+          if ($inv -notmatch 'Summarize-Compatibility' -or
+              $inv -notmatch 'COMPATIBILIDADE_COM_POSTGRESQL_NATIVO: NAO_DEMONSTRADA' -or
+              $inv -notmatch 'GATE: SOMENTE_PLANEJAMENTO' -or
+              $inv -notmatch 'Summarize-Compatibility \$riskSample' -or
+              $inv -notmatch 'OUTRO_MAJOR' -or
+              $sum -notmatch 'Get-ArchiveStatus' -or
+              $sum -notmatch 'Get-TcpStatus' -or
+              $sum -notmatch 'BLOQUEADO: pg_restore' -or
+              $sum -notmatch 'private_restore_native_windows_readiness.ps1' -or
+              $sum -notmatch 'private_restore_archive_inventory_windows.ps1' -or
+              $sum -match '(?mi)^\s*(?:&\s*)?(?:pg_restore|psql|pg_ctl|initdb|dropdb|createdb|Start-Process|Stop-Process|Start-Service|Stop-Service)\b' -or
+              $sum -match '(?mi)^\s*(?:Write-Host|Write-Output)\s+\$(?:lines|toc|backupOutput|tcpOutput)\b' -or
+              $inv -match '(?mi)^\s*(?:Write-Host|Write-Output)\s+\$(?:lines|toc)\b') {
+            throw "3.48: invariantes de sigilo, nao restauracao e comparacao de riscos violadas."
+          }
+          Write-Output "Aurora 3.48: matriz de risco e sumario de gates seguros sem SQL, backup ou rede."
+      - name: Recuperacao app-only vs Supabase sem restore (TOC sintetico)
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+          $script = ".\quality\private_restore_archive_inventory_windows.ps1"
+          $output = @(& powershell.exe -NoProfile -ExecutionPolicy RemoteSigned -File $script -SelfTest)
+          if ($LASTEXITCODE -ne 0 -or ($output -join " ") -notmatch 'AUTOTESTE APROVADO') {
+            throw "Falha no autoteste offline de particao do TOC."
+          }
+          $source = Get-Content -LiteralPath $script -Raw
+          if ($source -notmatch 'Summarize-RestoreScope' -or
+              $source -notmatch 'Show-RestoreScope' -or
+              $source -notmatch 'TABLE_DATA_PUBLIC_ORBITA' -or
+              $source -notmatch 'TABLE_DATA_SCHEMAS_GERENCIADOS' -or
+              $source -notmatch 'BACKUP_COMPLETO_NO_POSTGRES_NATIVO_NAO_APROVADO' -or
+              $source -notmatch 'NENHUM_FILTRO_EXECUTAVEL_GERADO' -or
+              $source -notmatch 'Autoteste de particao APP_ONLY' -or
+              $source -notmatch 'Autoteste nao bloqueou inconsistencia do TOC' -or
+              $source -match '(?mi)^\s*(?:&\s*)?(?:pg_restore|psql|pg_ctl|initdb|dropdb|createdb|Start-Process|Stop-Process|Start-Service|Stop-Service)\b' -or
+              $source -match '(?mi)^\s*(?:Write-Output|Write-Host)\s+\$(?:toc|lines|archive|entry|name)\b') {
+            throw "Catalogo app-only nao atende aos limites de somente leitura."
+          }
+          Write-Output "Recuperacao por escopo: classificacao de dados e barreiras nativas aprovadas offline."
+      - name: Garantir que o gate Windows nao le credenciais na CI
+        shell: powershell
+        run: |
+          $text = Get-Content ".\\quality\\private_database_backup_windows.ps1" -Raw
+          if ($text -notmatch '\[switch\]\$CheckPrerequisites') {
+            throw "O modo apenas diagnostico foi removido."
+          }
+          if ($text -notmatch 'RESTAURACAO PENDENTE') {
+            throw "O bloqueio de restauracao nao foi encontrado."
+          }
+          Write-Output "Gate de backup continua manual; CI nao conecta ao Supabase"

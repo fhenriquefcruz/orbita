@@ -3,6 +3,8 @@ import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from datetime import datetime
+from urllib.parse import parse_qs, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from cloud_memory import CloudMemory
 
@@ -55,25 +57,170 @@ class TestCloudMemory(unittest.TestCase):
             self.assertFalse(self.mem.complete(5,3))
             self.assertEqual(call.call_count,1)
 
+    def test_complete_only_confirms_one_version_matched_row(self):
+        before = {'id':'tg-1','updated_at':'2026-10-24T20:30:00+00:00',
+                  'payload':{'id':'tg-1','title':'Minha tarefa',
+                             'type':'tarefa','status':'em_andamento','priority':'P1'}}
+        snapshot = json.loads(json.dumps(before))
+        with patch.object(self.mem, '_call', side_effect=[[before], [{'id':'tg-1'}]]) as call:
+            self.assertTrue(self.mem.complete(5, 17))
+            self.assertEqual(call.call_count, 2)
+            read = call.call_args_list[0]
+            write = call.call_args_list[1]
+            self.assertEqual(read.kwargs['query']['select'], 'id,payload,updated_at')
+            self.assertEqual(read.kwargs['query']['user_id'], 'eq.' + self.USER)
+            self.assertEqual(read.kwargs['query']['telegram_seq'], 'eq.17')
+            self.assertEqual(write.args[:2], ('orbita_records','PATCH'))
+            self.assertEqual(write.kwargs['query']['updated_at'], 'eq.2026-10-24T20:30:00+00:00')
+            self.assertEqual(write.kwargs['query']['user_id'], 'eq.' + self.USER)
+            self.assertEqual(write.kwargs['prefer'], 'return=representation')
+            changes = write.kwargs['value']
+            self.assertEqual(changes['payload']['status'], 'concluida')
+            self.assertEqual(changes['payload']['completed_at'], changes['updated_at'])
+            self.assertGreater(datetime.fromisoformat(changes['updated_at']),
+                               datetime.fromisoformat(before['updated_at']))
+            self.assertEqual(before, snapshot, 'a leitura não pode ser mutada por referência')
+
+    def test_complete_concurrent_edit_returning_zero_rows_is_not_success(self):
+        row = {'id':'tg-1','updated_at':'2026-10-24T20:30:00Z',
+               'payload':{'type':'tarefa','status':'a_fazer'}}
+        with patch.object(self.mem, '_call', side_effect=[[row], []]) as call:
+            self.assertFalse(self.mem.complete(5, 17))
+            self.assertEqual(call.call_count, 2)
+            self.assertEqual(call.call_args.kwargs['query']['updated_at'],
+                             'eq.2026-10-24T20:30:00Z')
+
+    def test_complete_never_accepts_wrong_row_confirmation(self):
+        row = {'id':'tg-1','updated_at':'2026-10-24T20:30:00Z',
+               'payload':{'type':'tarefa','status':'a_fazer'}}
+        with patch.object(self.mem, '_call', side_effect=[[row], [{'id':'tg-other'}]]):
+            self.assertFalse(self.mem.complete(5, 17))
+
+    def test_complete_with_missing_or_invalid_revision_does_not_write(self):
+        for stamp in (None, '', 'invalid', '2026-10-24T20:30:00'):
+            with self.subTest(revision=stamp):
+                row = {'id':'tg-1','updated_at':stamp,
+                       'payload':{'type':'tarefa','status':'a_fazer'}}
+                with patch.object(self.mem, '_call', return_value=[row]) as call:
+                    self.assertFalse(self.mem.complete(5, 17))
+                    self.assertEqual(call.call_count, 1)
+
+    def test_complete_terminal_statuses_and_ideas_are_untouched(self):
+        for kind, status in (('ideia','a_fazer'), ('tarefa','concluida'),
+                             ('tarefa','cancelada'), ('tarefa','arquivada')):
+            with self.subTest(kind=kind, status=status):
+                row = {'id':'tg-1','updated_at':'2026-10-24T20:30:00Z',
+                       'payload':{'type':kind,'status':status}}
+                with patch.object(self.mem, '_call', return_value=[row]) as call:
+                    self.assertFalse(self.mem.complete(5, 17))
+                    self.assertEqual(call.call_count, 1)
+
+    def test_complete_future_revision_moves_timestamp_forward(self):
+        row = {'id':'tg-1','updated_at':'2032-01-01T00:00:00+00:00',
+               'payload':{'type':'tarefa','status':'a_fazer'}}
+        with patch.object(self.mem, '_call', side_effect=[[row],[{'id':'tg-1'}]]) as call:
+            self.assertTrue(self.mem.complete(5, 17))
+            timestamp = call.call_args.kwargs['value']['updated_at']
+            self.assertGreater(datetime.fromisoformat(timestamp),
+                               datetime.fromisoformat(row['updated_at']))
+
+    def test_complete_postgrest_encodes_revision_and_checks_representation(self):
+        calls = []
+        row = {'id':'tg-1','updated_at':'2026-10-24T20:30:00+00:00',
+               'payload':{'id':'tg-1','type':'tarefa','status':'a_fazer'}}
+        def fake(req, timeout):
+            calls.append(req)
+            if req.method == 'GET':
+                return FakeResponse([row])
+            params = parse_qs(urlsplit(req.full_url).query)
+            self.assertEqual(req.method, 'PATCH')
+            self.assertEqual(params.get('updated_at'), ['eq.' + row['updated_at']])
+            self.assertEqual(params.get('user_id'), ['eq.' + self.USER])
+            self.assertEqual(params.get('id'), ['eq.tg-1'])
+            self.assertEqual(req.headers.get('Prefer'), 'return=representation')
+            return FakeResponse([])  # Outro dispositivo alterou a tarefa.
+        with patch('cloud_memory.urlopen', side_effect=fake):
+            self.assertFalse(self.mem.complete(5,17))
+        self.assertEqual(len(calls), 2)
+
+    def test_legacy_stage_reply_requires_exact_row_and_status(self):
+        with patch.object(self.mem,'_call',return_value=[
+                {'update_id':148,'status':'replied'}]) as caller:
+            self.mem.stage_reply(148,'Mensagem salva')
+            self.assertEqual(caller.call_args.kwargs['query']['status'],'eq.received')
+            self.assertEqual(caller.call_args.kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(caller.call_args.kwargs['value'],
+                             {'status':'replied','response':'Mensagem salva'})
+            self.assertEqual(caller.call_args.kwargs['prefer'],'return=representation')
+        for rows in ([],[{'update_id':999,'status':'replied'}],
+                     [{'update_id':148,'status':'received'}]):
+            with self.subTest(rows=rows):
+                with patch.object(self.mem,'_call',return_value=rows):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.stage_reply(148,'Mensagem salva')
+
+    def test_legacy_finish_after_send_only_from_replied(self):
+        with patch.object(self.mem,'_call',return_value=[
+                {'update_id':149,'status':'processed'}]) as caller:
+            self.mem.finish_update(149)
+            self.assertEqual(caller.call_args.kwargs['query']['status'],'eq.replied')
+            self.assertEqual(caller.call_args.kwargs['value'],{'status':'processed'})
+            self.assertEqual(caller.call_args.kwargs['prefer'],'return=representation')
+        for rows in ([],[{'update_id':999,'status':'processed'}],
+                     [{'update_id':149,'status':'replied'}]):
+            with self.subTest(rows=rows):
+                with patch.object(self.mem,'_call',return_value=rows):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.finish_update(149)
+
+    def test_legacy_rejects_blank_reply_without_database_write(self):
+        for invalid in ('', '  ', None):
+            with self.subTest(invalid=invalid):
+                with patch.object(self.mem,'_call') as caller:
+                    with self.assertRaises(ValueError):
+                        self.mem.stage_reply(150,invalid)
+                    caller.assert_not_called()
+
+    def test_finish_update_requires_verified_persistence(self):
+        row={'update_id':135,'status':'processed'}
+        with patch.object(self.mem,'_call',return_value=[row]) as call:
+            self.mem.finish_update(135,'Resposta confirmada')
+            kwargs=call.call_args.kwargs
+            self.assertEqual(call.call_args.args[:2],
+                             ('orbita_telegram_updates','PATCH'))
+            self.assertEqual(kwargs['query']['status'],'eq.received')
+            self.assertEqual(kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(kwargs['prefer'],'return=representation')
+            self.assertEqual(kwargs['value']['response'],'Resposta confirmada')
+
+    def test_finish_update_no_row_changed_fails_without_false_success(self):
+        for result in ([],[{'update_id':999,'status':'processed'}],
+                       [{'update_id':136,'status':'received'}]):
+            with self.subTest(result=result):
+                with patch.object(self.mem,'_call',return_value=result):
+                    with self.assertRaises(RuntimeError):
+                        self.mem.finish_update(136,'Resposta')
+
+    def test_finish_update_refuses_empty_answer(self):
+        with patch.object(self.mem,'_call') as caller:
+            with self.assertRaises(ValueError):
+                self.mem.finish_update(136,'')
+            caller.assert_not_called()
+
+    def test_mark_delivered_requires_exact_row_and_state(self):
+        with patch.object(self.mem,'_call',return_value=[
+                {'update_id':136,'status':'delivered'}]) as caller:
+            self.assertTrue(self.mem.mark_delivered(136))
+            self.assertEqual(caller.call_args.kwargs['query']['status'],'eq.processed')
+            self.assertEqual(caller.call_args.kwargs['query']['user_id'],'eq.'+self.USER)
+            self.assertEqual(caller.call_args.kwargs['prefer'],'return=representation')
+        for result in ([],[{'update_id':999,'status':'delivered'}],
+                       [{'update_id':136,'status':'processed'}]):
+            with self.subTest(result=result):
+                with patch.object(self.mem,'_call',return_value=result):
+                    self.assertFalse(self.mem.mark_delivered(136))
+
     def test_duplicate_update_can_be_deduplicated(self):
         with patch.object(self.mem,'_call',return_value=[]) as call:
             self.assertFalse(self.mem.claim_update(100))
             self.assertIn('ignore-duplicates',call.call_args.kwargs['prefer'])
-
-    def test_stage_reply_persists_before_send_and_checks_state(self):
-        with patch.object(self.mem, '_call', return_value=[{'status': 'replied'}]) as call:
-            self.mem.stage_reply(90, 'Resposta')
-        self.assertEqual(call.call_args.kwargs['value']['status'], 'replied')
-        self.assertEqual(call.call_args.kwargs['query']['status'], 'eq.received')
-        with patch.object(self.mem, '_call', return_value=[]):
-            with self.assertRaises(RuntimeError):
-                self.mem.stage_reply(90, 'Resposta')
-
-    def test_finish_requires_replied_and_ack(self):
-        with patch.object(self.mem, '_call', return_value=[{'status': 'processed'}]) as call:
-            self.mem.finish_update(90)
-        self.assertEqual(call.call_args.kwargs['value']['status'], 'processed')
-        self.assertEqual(call.call_args.kwargs['query']['status'], 'eq.replied')
-        with patch.object(self.mem, '_call', return_value=[]):
-            with self.assertRaises(RuntimeError):
-                self.mem.finish_update(90)

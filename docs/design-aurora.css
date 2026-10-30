@@ -1,0 +1,575 @@
+/* ORBITA — Design System 3.2 / AURORA
+   Camada de apresentação: sem dependências de dados, Auth ou banco.
+   Fontes externas opcionais com fallback nativo e compatível com offline.
+*/
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root,
+html[data-orbita-theme="light"] {
+  --bg:#F4F6FB;
+  --nav:#151D39;
+  --panel:#FFFFFF;
+  --panel2:#F0F3FA;
+  --line:#DFE5EF;
+  --ink:#19233A;
+  --muted:#58677E;
+  --lime:#5146C8;
+  --olive:#0D817A;
+  --amber:#99600C;
+  --blue:#286DA7;
+  --red:#B73F58;
+  --violet:#6C4BB3;
+  --radius:20px;
+  --shadow:0 9px 30px rgba(27,40,84,.055),0 2px 9px rgba(27,40,84,.035);
+  --orbita-highlight:#ECEBFF;
+  --orbita-hover:#F5F6FE;
+  --orbita-heading:"Manrope","DM Sans",Arial,sans-serif;
+  --orbita-body:"DM Sans",Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+
+html[data-orbita-theme="night"] {
+  --bg:#0E1426;
+  --nav:#0A1123;
+  --panel:#161F35;
+  --panel2:#1E2A44;
+  --line:#33425A;
+  --ink:#F2F4FD;
+  --muted:#B4C0D2;
+  --lime:#ABA8FF;
+  --olive:#53D9C4;
+  --amber:#F0C57A;
+  --blue:#89C5F1;
+  --red:#FF96AB;
+  --violet:#C0A9FF;
+  --shadow:0 14px 38px rgba(0,0,0,.18);
+  --orbita-highlight:#29294E;
+  --orbita-hover:#202B49;
+  color-scheme:dark;
+}
+
+html {scroll-behavior:smooth}
+html,body {font-family:var(--orbita-body);background:var(--bg);color:var(--ink)}
+body {font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button,input,select,textarea {font-family:var(--orbita-body)}
+button,input,textarea,select {accent-color:var(--lime)}
+a {color:var(--lime);text-underline-offset:3px}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible {
+  outline:3px solid var(--lime);outline-offset:3px
+}
+::selection {background:var(--orbita-highlight);color:var(--ink)}
+:where(h1,h2,h3,h4,h5), .brand strong {font-family:var(--orbita-heading)}
+:where(.card,.profile,.modal,.chat-card,.schedule>div) {box-shadow:var(--shadow)}
+.layout{min-height:100dvh}
+.side{
+  width:262px;
+  background:linear-gradient(160deg,#182145 0%,#10182E 59%,#141832 100%);
+  border-right:1px solid rgba(255,255,255,.08);
+  padding:28px 15px 20px;
+  box-shadow:10px 0 30px rgba(21,27,61,.035);
+}
+.brand {padding:0 12px;margin-bottom:32px;gap:12px}
+.logo {
+  width:45px;height:45px;border-radius:15px;
+  background:linear-gradient(140deg,#8C8BFA,#5256CF);
+  color:#FFF;box-shadow:0 8px 21px #7571F042;font-size:25px;
+}
+.brand strong{color:#F7F7FF;font-size:16px;font-weight:800;letter-spacing:.18em}
+.brand small{color:#AFBCE1;font-weight:550;letter-spacing:.075em;font-size:9px}
+.nav-label {color:#8796BE;font-size:10px;font-weight:700;letter-spacing:.20em;padding:17px 14px 9px}
+.nav-btn {
+  color:#C1CCE8;font-size:13px;font-weight:650;
+  margin:3px 0;padding:12px 14px;gap:12px;
+  border-radius:12px;border:1px solid transparent;
+}
+.nav-btn .sym {color:#9EADD8;font-size:19px;width:22px}
+.nav-btn:hover {color:white;background:#FFFFFF14}
+.nav-btn:hover .sym{color:white}
+.nav-btn.active {
+  background:linear-gradient(95deg,#7778DC36,#6C5EDA19);
+  border-color:#AFAAFF33;
+  color:#FFF;box-shadow:inset 3px 0 0 #AEA7FF;
+}
+.nav-btn.active .sym{color:#C6C2FF}
+.side-foot{border-top-color:#FFFFFF1B;color:#B4C0DD;margin:12px 8px 0;padding:19px 9px;font-size:11px}
+.dot{background:#FFBE7E;box-shadow:0 0 0 4px #FFBE7E19}
+.content {width:100%;max-width:1600px;padding:30px clamp(20px,3.8vw,60px) 60px}
+.top {margin-bottom:35px;min-height:40px;gap:12px}
+.crumb {color:var(--muted);font-weight:800;font-size:10px;letter-spacing:.15em}
+.headtools{gap:10px}
+.avatar{
+  border-radius:12px;background:linear-gradient(135deg,#E2DFFF,#F8F7FF);
+  color:#5750BD;border-color:#DDD9FF;font-family:var(--orbita-heading);font-weight:800;
+  box-shadow:0 2px 9px #5146C810;
+}
+.pill {background:#E7E7FF;color:#5146C8;border-color:#D4D0FC;font-weight:800}
+.pill.off {background:#FFF0DA;color:#805110;border-color:#F7DAB0}
+html[data-orbita-theme="night"] .avatar{background:#282A55;color:#D1CDFF;border-color:#484674}
+html[data-orbita-theme="night"] .pill.off{background:#49331F;color:#F0C57A;border-color:#76532C}
+.orbita-account{color:var(--muted);font-size:11px}
+.orbita-theme-toggle {
+  min-height:38px;min-width:38px;display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  padding:8px 12px;border-radius:12px;color:var(--ink);
+  background:var(--panel);border:1px solid var(--line);
+  box-shadow:0 2px 8px #13204108;font-size:12px;font-weight:800;
+  transition:transform .2s,background .2s,border-color .2s;
+}
+.orbita-theme-toggle:hover{transform:translateY(-1px);border-color:var(--lime);background:var(--orbita-hover)}
+.orbita-theme-toggle .theme-icon{font-size:17px;line-height:1}
+.orbita-theme-toggle .theme-caption{font-size:11px}
+.title {
+  font-family:var(--orbita-heading);font-size:clamp(29px,3.3vw,43px);
+  line-height:1.16;font-weight:800;letter-spacing:-.055em;
+  color:var(--ink);text-wrap:balance;margin:10px 0 14px;
+}
+.eyebrow{font-size:10px;font-weight:850;letter-spacing:.19em;color:var(--lime)}
+.lead {color:var(--muted);font-size:14px;line-height:1.76;max-width:690px}
+.hero {position:relative;align-items:flex-end;gap:22px;margin-bottom:25px}
+#view-home>.hero {
+  padding:29px clamp(20px,2.8vw,36px) 31px;
+  border-radius:25px;
+  background:
+    radial-gradient(circle at 98% 4%,#DDD9FFBD 0,transparent 29%),
+    radial-gradient(circle at 75% 110%,#D9F5F0B0 0,transparent 34%),
+    linear-gradient(118deg,#EDEEFF,#F8F9FF 68%,#F3F5FD);
+  border:1px solid #E3E4F5;
+  overflow:hidden;
+}
+#view-home>.hero:after {
+  content:"";position:absolute;right:-45px;top:-70px;width:195px;height:195px;
+  border:1px solid #7770C638;border-radius:50%;pointer-events:none;
+  box-shadow:0 0 0 31px #7770C00D,0 0 0 65px #7770C009;
+}
+#view-home>.hero> *{position:relative;z-index:1}
+#view-home>.hero .title{max-width:690px;color:#1C2855}
+#view-home>.hero .lead{color:#50607D}
+#view-home>.hero .eyebrow{color:#5A4AC5}
+html[data-orbita-theme="night"] #view-home>.hero{
+  background:radial-gradient(circle at 95% 12%,#42437A55 0,transparent 40%),
+    linear-gradient(125deg,#23284D,#1C2742 85%);
+  border-color:#3A4368
+}
+html[data-orbita-theme="night"] #view-home>.hero :is(.title,.lead,.eyebrow){color:var(--ink)}
+.btn{
+  border:1px solid var(--line);background:var(--panel);
+  color:var(--ink);border-radius:11px;padding:11px 16px;
+  min-height:42px;font-weight:800;font-size:12px;
+  box-shadow:0 2px 7px #202D4A06;
+  transition:transform .18s,background .18s,box-shadow .18s,border-color .18s;
+}
+.btn:hover{filter:none;background:var(--orbita-hover);border-color:#AEA8EC;transform:translateY(-1px)}
+.btn.primary{
+  color:#FFF;background:linear-gradient(125deg,#6156D6,#4543B7);
+  border-color:#4B47C0;box-shadow:0 7px 15px #5146C829;
+}
+.btn.primary:hover{background:linear-gradient(125deg,#6F65E5,#4D4CC5);color:#FFF}
+.btn.ghost{background:transparent;box-shadow:none;color:var(--lime)}
+.btn.ghost:hover{background:var(--orbita-hover)}
+.btn.danger{color:var(--red);background:transparent;border-color:#B73F5845}
+.btn.sm{min-height:35px;padding:7px 11px}
+.cards{gap:15px;margin:17px 0 19px}
+.card,.profile {
+  background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+}
+.card{padding:22px}
+.metric {
+  min-height:155px;position:relative;overflow:hidden;
+  border-top:3px solid #645BDD;
+  background:linear-gradient(150deg,#F4F2FF 0%,#FFF 55%);
+}
+.metric:nth-child(2){border-top-color:#2785BC;background:linear-gradient(150deg,#EDF7FE,#FFF 60%)}
+.metric:nth-child(3){border-top-color:#D48B3C;background:linear-gradient(150deg,#FFF6E9,#FFF 60%)}
+.metric:nth-child(4){border-top-color:#188D80;background:linear-gradient(150deg,#EAF9F5,#FFF 60%)}
+.metric .mini{font-size:12px;font-weight:700;color:#596783;align-items:start}
+.metric strong{font-family:var(--orbita-heading);font-size:clamp(32px,3vw,43px);font-weight:800;letter-spacing:-.075em;margin:13px 0 3px;color:#1E2A50}
+.metric .hint{font-size:11px;color:#617087;line-height:1.5}
+.metric .marker{width:30px;height:30px;display:grid;place-items:center;background:#ECEAFF;border-radius:10px;font-size:17px;color:#5146C8}
+.metric:nth-child(2) .marker{background:#DFF3FF;color:#286DA7!important}
+.metric:nth-child(3) .marker{background:#FFF0DC;color:#A06813!important}
+.metric:nth-child(4) .marker{background:#DEF8EF;color:#138376!important}
+html[data-orbita-theme="night"] .metric{background:linear-gradient(155deg,#272747,#161F35 70%);border-top-color:#A5A0FF}
+html[data-orbita-theme="night"] .metric:nth-child(2){background:linear-gradient(155deg,#1D3A56,#161F35 70%);border-top-color:#7ABCE9}
+html[data-orbita-theme="night"] .metric:nth-child(3){background:linear-gradient(155deg,#443324,#161F35 70%);border-top-color:#EDBB70}
+html[data-orbita-theme="night"] .metric:nth-child(4){background:linear-gradient(155deg,#1C423D,#161F35 70%);border-top-color:#56D4BF}
+html[data-orbita-theme="night"] .metric :is(.mini,.hint){color:var(--muted)}
+html[data-orbita-theme="night"] .metric strong{color:var(--ink)}
+.sectionhead{margin-bottom:19px}
+.sectionhead h2{font-size:16px;font-family:var(--orbita-heading);font-weight:800;letter-spacing:-.035em}
+.two{gap:18px;grid-template-columns:minmax(0,1.30fr) minmax(275px,.87fr)}
+.stack{gap:18px}
+.person-title{gap:12px;margin-bottom:16px}
+.badge-icon {
+  width:40px;height:40px;border-radius:13px;
+  background:#EFEBFF;color:#6251C4;flex-shrink:0;font-weight:800;
+}
+.person-title strong{font-family:var(--orbita-heading);font-weight:800;color:var(--ink);font-size:14px}
+.person-title span{color:var(--muted);font-size:11px}
+.muted{color:var(--muted)}
+.small{font-size:12px;line-height:1.75}
+.messages{gap:9px}
+.message {background:var(--panel2);border-left:3px solid #8176E4;border-radius:0 11px 11px 0;color:var(--ink)}
+.message.subtle{border-left-color:#92A6BE;background:var(--panel2)}
+.input,select,textarea {
+  border-radius:11px;background:var(--panel);color:var(--ink);border:1px solid #CCD6E5;
+  min-height:43px;padding:11px 13px;font-size:13px;
+  box-shadow:inset 0 1px 2px rgba(13,22,43,.025);
+}
+.input::placeholder,textarea::placeholder{color:#8390A4}
+html[data-orbita-theme="night"] :is(.input,select,textarea){border-color:#4C5A72;background:#101A2F}
+html[data-orbita-theme="night"] :is(.input::placeholder,textarea::placeholder){color:#9EAAC0}
+.capture{gap:10px}
+.capture .btn{flex:none}
+.entry{padding:14px;border-radius:13px;background:var(--panel);transition:border-color .18s,background .18s}
+.entry:hover{border-color:#B7B9E9;background:var(--orbita-hover)}
+.entry strong{font-weight:750;font-size:13px}
+.entry .meta{font-size:11px;line-height:1.55}
+.chip{padding:6px 9px;border-radius:9px;background:var(--panel2);color:var(--muted);font-size:10px}
+.chip.P0{color:#AD304B;background:#FDEAF0;border-color:#F3BDCC}
+.chip.P1{color:#A0691C;background:#FFF4E5;border-color:#F5D5A3}
+.chip.P2{color:#276EAD;background:#EAF5FD;border-color:#C4E2F6}
+.chip.P3{color:#087A71;background:#E5F8F3;border-color:#ADE3D8}
+html[data-orbita-theme="night"] .chip.P0{color:#FFA6B8;background:#4D2739;border-color:#6B4054}
+html[data-orbita-theme="night"] .chip.P1{color:#F8D08C;background:#473725;border-color:#765C40}
+html[data-orbita-theme="night"] .chip.P2{color:#99CFFF;background:#263C58;border-color:#45627F}
+html[data-orbita-theme="night"] .chip.P3{color:#6FE2C8;background:#1E4744;border-color:#417569}
+.empty{background:var(--panel2);border-color:var(--line);color:var(--muted)}
+.kicker{font-weight:800;color:var(--muted);letter-spacing:.14em;font-size:10px}
+.big-time,.schedule strong{font-family:var(--orbita-heading);font-weight:800;letter-spacing:-.055em}
+.rule{border-top-color:var(--line)}
+.profiles{gap:15px}
+.profile{padding:22px;transition:transform .2s,border-color .2s}
+.profile:hover{border-color:#BEB8EF}
+.profile .mark{background:#F0ECFF;color:#604FC6;border-radius:14px}
+.profile:nth-child(3n+2) .mark{background:#E5F6FD;color:#2779A3}
+.profile:nth-child(3n+3) .mark{background:#E4F8F1;color:#118A7D}
+.profile h3{font-weight:850;color:var(--ink)}
+.profile p{line-height:1.7}
+html[data-orbita-theme="night"] .profile .mark{background:#2B2C55;color:#CAC3FF}
+.filters{gap:10px}
+.filters #clearFilters{align-self:stretch;min-height:42px}
+.filters #clearFilters[hidden]{display:none}
+.action{border-radius:9px;font-weight:750;background:var(--panel);color:var(--muted)}
+.action:hover{background:var(--orbita-hover);color:var(--lime)}
+.entry .action[data-complete]{color:#087A71;border-color:#ADE3D8;background:#E5F8F3}
+html[data-orbita-theme="night"] .entry .action[data-complete]{color:#6FE2C8;border-color:#417569;background:#1E4744}
+.schedule{gap:14px}
+.schedule>div{background:var(--panel);border-radius:16px;border-top:3px solid #6259D1}
+.schedule>div:nth-child(2){border-top-color:#16958C}
+.schedule>div:nth-child(3){border-top-color:#DE9F50}
+.schedule strong{color:var(--ink)}
+.modal-backdrop{background:#070C1AB8;backdrop-filter:blur(8px)}
+.modal {border-radius:22px;background:var(--panel);border-color:var(--line);box-shadow:0 20px 70px #0B12334F}
+.modal h2{font:800 27px/1.2 var(--orbita-heading)}
+.field label{font-weight:750;color:var(--muted)}
+.toast{background:#26294F;border-color:#6869D8;color:#FFF;border-radius:13px}
+.bar{background:var(--line)}
+.bar>i{background:linear-gradient(90deg,#6961DC,#31A99D)}
+.log p{border-color:var(--line)}
+.chat-card{overflow:hidden}
+.chat-heading{background:var(--panel);border-color:var(--line)}
+.chat-feed{
+  background:linear-gradient(180deg,var(--panel),var(--panel2) 100%);
+  scrollbar-color:#A9ABDC transparent;
+}
+.chat-avatar{background:#EAE8FF;border-color:#C8C5F2;color:#5244C0}
+.chat-row.me .chat-avatar{background:#DDF2F3;border-color:#BEE4E5;color:#087D82}
+.chat-bubble{border-radius:4px 17px 17px 17px;background:var(--panel);border-color:var(--line);color:var(--ink);box-shadow:0 3px 10px #131F3D08}
+.chat-row.me .chat-bubble{border-radius:17px 4px 17px 17px;background:#E9F5F4;border-color:#BEE4DF;color:#144F52}
+.chat-name{color:var(--lime);font-weight:850}
+.chat-row.me .chat-name{color:#087E81}
+.chat-compose{background:var(--panel);border-color:var(--line)}
+.suggestion{background:var(--panel);border-radius:11px;color:var(--ink);border-color:var(--line)}
+.suggestion:hover{background:var(--orbita-hover);border-color:#C0B5F1}
+.suggestion span{color:var(--lime)}
+html[data-orbita-theme="night"] .chat-row.me .chat-bubble{background:#203A43;color:#DAF8F5;border-color:#375F68}
+html[data-orbita-theme="night"] .chat-row.me .chat-name{color:#6AE0D2}
+html[data-orbita-theme="night"] .chat-avatar{background:#2C2952;color:#C7BFFF;border-color:#4A4878}
+html[data-orbita-theme="night"] .chat-row.me .chat-avatar{background:#1C4344;color:#79DED3;border-color:#407879}
+html[data-orbita-theme="night"] .badge-icon{background:#313057;color:#C3B6FF}
+.orbita-cloud-panel{margin-top:22px}
+.orbita-cloud-panel .card{border-color:var(--line)}
+/* Authentication style is injected by auth.js. Use higher specificity to preserve the design. */
+html .orbita-auth-root{
+  background:radial-gradient(ellipse at 15% 10%,#302C6E 0%,transparent 45%),
+             radial-gradient(ellipse at 90% 90%,#1D5358 0%,transparent 36%),
+             #0F1730;
+  padding:max(20px,env(safe-area-inset-top)) 18px max(20px,env(safe-area-inset-bottom));
+  font-family:var(--orbita-body);
+}
+html .orbita-auth-card{
+  background:#F9FAFE;border:1px solid #CBD3EB;border-radius:24px;
+  box-shadow:0 25px 75px #050A2380;padding:clamp(24px,5vw,38px);color:#182343;
+}
+html .orbita-auth-mark{color:#5D50C4;font-weight:850;font-family:var(--orbita-heading);letter-spacing:.17em}
+html .orbita-auth-card h1{font:800 clamp(28px,5vw,34px)/1.19 var(--orbita-heading);letter-spacing:-.055em;color:#1A2544}
+html .orbita-auth-description, html .orbita-auth-caption{color:#5B6980;line-height:1.75}
+html .orbita-auth-field label{color:#384962;font-weight:750}
+html .orbita-auth-field input{background:#FFF;color:#19233A;border:1px solid #CED6E7;border-radius:11px;min-height:48px}
+html .orbita-auth-field input:focus-visible{outline:3px solid #5146C8;outline-offset:2px}
+html .orbita-auth-submit{
+  background:linear-gradient(125deg,#6156D6,#4543B7)!important;color:#FFF!important;
+  border-radius:12px;min-height:49px;font-weight:850!important;font-family:var(--orbita-body)
+}
+html .orbita-auth-link{color:#5045BA;font-weight:750}
+html .orbita-auth-status{color:#9A5E15}
+html .orbita-auth-root button:focus-visible{outline-color:#5146C8}
+/* Dark visual mode */
+html[data-orbita-theme="night"] .side{border-color:#ffffff10}
+html[data-orbita-theme="night"] .input{color-scheme:dark}
+html[data-orbita-theme="night"] #view-home>.hero .lead{color:#BDC8E5}
+html[data-orbita-theme="night"] .suggestion:hover{background:#283550}
+html[data-orbita-theme="night"] .profile:nth-child(n) .mark{background:#303459;color:#C6C4FF}
+
+/* Compact density / no horizontal overflow on narrow displays */
+@media(max-width:1180px){
+  .side{width:230px}
+  .two{grid-template-columns:minmax(0,1fr)}
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:780px){
+  .side{width:210px}
+  .content{padding-left:20px;padding-right:20px}
+  .headtools{gap:6px}
+  .orbita-theme-toggle .theme-caption{display:none}
+  .orbita-theme-toggle{width:38px;padding:8px}
+}
+@media(max-width:700px){
+  .side{display:none}
+  .content{padding:19px 14px calc(126px + env(safe-area-inset-bottom))}
+  .top{margin-bottom:22px;gap:8px}
+  .crumb{font-size:9px;letter-spacing:.07em}
+  .headtools .pill{font-size:9px;padding:6px 7px;max-width:100px;white-space:normal;line-height:1.25}
+  .headtools #orbitaSignOut{min-height:36px;padding:7px 9px}
+  .headtools .avatar{display:none}
+  .orbita-theme-toggle{min-width:35px;width:35px;min-height:35px}
+  .hero{gap:18px}
+  #view-home>.hero{padding:25px 19px;border-radius:20px}
+  #view-home>.hero:after{right:-118px;top:-116px}
+  .title{font-size:clamp(27px,7.1vw,35px)}
+  .lead{font-size:13px}
+  .cards{gap:10px;margin:15px 0}
+  .card,.profile{padding:17px;border-radius:16px}
+  .metric{min-height:142px;padding:16px}
+  .metric .mini{font-size:11px}
+  .metric strong{font-size:34px;margin:12px 0 3px}
+  .metric .hint{font-size:10px}
+  .metric .marker{width:25px;height:25px;font-size:15px}
+  .two,.stack{gap:13px}
+  .mobile-nav{
+    background:#111B36EE;border-top:1px solid #FFFFFF28;
+    box-shadow:0 -10px 28px #16214222;
+    backdrop-filter:blur(20px);
+    padding:9px max(5px,env(safe-area-inset-right))
+            calc(8px + env(safe-area-inset-bottom));
+  }
+  .mobile-nav button{color:#B2BFDC;min-width:50px;font-size:10px;font-weight:700;gap:5px;padding:7px 2px;border-radius:11px}
+  .mobile-nav button span{font-size:20px}
+  .mobile-nav button.active{color:#FFFFFF;background:#FFFFFF1C}
+  .chat-card{padding:0}
+  .chat-feed{min-height:310px}
+  .chat-compose{padding:12px}
+  .chat-compose button{width:100%}
+  .filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+  .filters .input{grid-column:1/-1}
+  .filters #clearFilters{grid-column:1/-1}
+  .entry .actions .action{min-height:42px}
+  .schedule{grid-template-columns:1fr}
+  .formgrid{grid-template-columns:1fr}
+  .field.full{grid-column:auto}
+  .modal{padding:18px;max-height:calc(100dvh - 24px)}
+  .orbita-cloud-actions{display:grid;grid-template-columns:1fr}
+}
+@media(max-width:470px){
+  /* Evita colisões entre breadcrumb, conta e ações em iPhones compactos. */
+  .top{flex-wrap:wrap;row-gap:7px}
+  .crumb{flex:1 1 100%;max-width:none}
+  .headtools{width:100%;justify-content:flex-end;min-width:0}
+  .headtools .orbita-account{max-width:98px}
+}
+@media(max-width:375px){
+  .headtools .pill{display:none}
+  .crumb{max-width:150px}
+  .cards{gap:8px}
+  .metric{padding:13px;min-height:137px}
+  .metric .mini{font-size:10px}
+  .metric strong{font-size:31px}
+  .metric .hint{font-size:9.5px}
+  .capture{flex-wrap:wrap}
+  .capture input{min-width:100%}
+  .filters{grid-template-columns:1fr}
+  .filters .input{grid-column:auto}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *{animation-duration:.01ms!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+
+
+/* ORBITA 3.3 — Estado da memória central: contagem somente leitura */
+.orbita-cloud-bridge {
+  display:flex;align-items:center;gap:13px;margin:-4px 0 20px;
+  padding:15px 18px;border:1px solid #D9DEFA;background:linear-gradient(105deg,#F0EEFF,#FFFFFF 68%);
+  border-radius:16px;box-shadow:0 4px 14px rgba(61,62,139,.035);min-width:0;
+}
+.orbita-cloud-bridge-mark {
+  flex:none;display:grid;place-items:center;width:39px;height:39px;
+  border-radius:13px;background:#E2DEFF;color:#4C42B2;font-size:24px;font-weight:800;
+}
+.orbita-cloud-bridge-body {min-width:0;flex:1;display:grid;gap:2px}
+.orbita-cloud-bridge-body strong {
+  font:800 12px/1.5 var(--orbita-heading);color:#292C70;
+}
+.orbita-cloud-bridge-body span {
+  font-size:11px;line-height:1.65;color:#52607C;overflow-wrap:anywhere
+}
+.orbita-cloud-bridge-body small {font-size:10px;color:#74809A}
+.orbita-cloud-bridge-buttons {display:flex;flex:none;gap:8px;align-items:center}
+.orbita-cloud-bridge-buttons .btn {font-size:11px;min-height:36px;padding:7px 11px}
+html[data-orbita-theme="night"] .orbita-cloud-bridge {
+  background:linear-gradient(105deg,#22254C,#171F35 79%);border-color:#46456E
+}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-mark{background:#383463;color:#D7D1FF}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-body strong{color:#E1DEFF}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-body span{color:#CAD1E7}
+html[data-orbita-theme="night"] .orbita-cloud-bridge-body small{color:#A6B4CE}
+@media(max-width:700px) {
+  .orbita-cloud-bridge{gap:10px;align-items:flex-start;padding:13px;flex-wrap:wrap;margin:1px 0 15px}
+  .orbita-cloud-bridge-mark{width:34px;height:34px;font-size:21px}
+  .orbita-cloud-bridge-body{flex:1 1 calc(100% - 50px)}
+  .orbita-cloud-bridge-buttons{width:100%;justify-content:flex-end}
+  .orbita-cloud-bridge-buttons .btn{min-width:0}
+}
+@media(max-width:370px) {
+  .orbita-cloud-bridge-buttons{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+}
+
+
+/* ORBITA 3.4 — Prévia autenticada e somente leitura do Telegram */
+.orbita-telegram-preview{
+  margin:19px 0 8px;padding:18px;border:1px solid #DAE0F4;
+  background:linear-gradient(135deg,#F9FAFF,#F5F6FD);border-radius:16px;min-width:0;
+}
+.orbita-telegram-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:14px}
+.orbita-telegram-heading h3{font:800 15px/1.4 var(--orbita-heading);margin:0 0 5px;color:#243152}
+.orbita-telegram-heading p{margin:0;line-height:1.6}
+.orbita-telegram-heading .btn{flex:none;min-height:36px;font-size:11px}
+.orbita-telegram-preview #orbitaTelegramStatus{margin:15px 0 9px;color:#556381;line-height:1.6}
+.orbita-telegram-list{list-style:none;display:grid;gap:8px;margin:0;padding:0}
+.orbita-telegram-item{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;
+  padding:12px 13px;border:1px solid #E3E8F5;border-radius:12px;background:#FFFFFF;
+}
+.orbita-telegram-item-info{min-width:0;display:grid;gap:4px}
+.orbita-telegram-item-info strong{font:750 12px/1.5 var(--orbita-heading);color:#243152;overflow-wrap:anywhere}
+.orbita-telegram-item-info small{font-size:10px;color:#71809D}
+.orbita-telegram-state{
+  flex:none;display:inline-flex;align-items:center;border-radius:20px;padding:6px 10px;
+  background:#FFF2DB;color:#805614;font-size:10px;font-weight:800;
+}
+.orbita-telegram-state.is-done{background:#E1F4E8;color:#286748}
+html[data-orbita-theme="night"] .orbita-telegram-preview{
+  background:linear-gradient(135deg,#222C47,#1E2740);border-color:#3E4A69
+}
+html[data-orbita-theme="night"] .orbita-telegram-heading h3,
+html[data-orbita-theme="night"] .orbita-telegram-item-info strong{color:#EEF2FF}
+html[data-orbita-theme="night"] .orbita-telegram-preview #orbitaTelegramStatus{color:#C0CEE6}
+html[data-orbita-theme="night"] .orbita-telegram-item{background:#18243B;border-color:#3E4B68}
+html[data-orbita-theme="night"] .orbita-telegram-item-info small{color:#A8B9D6}
+@media(max-width:470px){
+  .orbita-telegram-preview{padding:13px;border-radius:14px}
+  .orbita-telegram-heading{gap:10px}
+  .orbita-telegram-heading h3{font-size:13px}
+  .orbita-telegram-heading .btn{padding:7px 10px}
+  .orbita-telegram-item{align-items:flex-start;flex-wrap:wrap;gap:8px}
+  .orbita-telegram-state{margin-left:auto}
+}
+
+/* ORBITA 3.6 — Atividades da memória Telegram: indicadores e busca somente leitura */
+.orbita-telegram-metrics{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:16px 0;
+}
+.orbita-telegram-metrics>div{
+  min-width:0;padding:14px 12px;border:1px solid #E0E6F7;border-radius:13px;
+  background:#fff;display:grid;gap:4px;
+}
+.orbita-telegram-metrics span{font:800 clamp(19px,3vw,25px)/1.2 var(--orbita-heading);color:#25345C}
+.orbita-telegram-metrics small{font-size:10px;color:#657493;line-height:1.4}
+.orbita-telegram-metrics>div:first-child span{color:#996019}
+.orbita-telegram-metrics>div:nth-child(2) span{color:#20774E}
+.orbita-telegram-metrics>div:nth-child(3) span{color:#5C4FBE}
+.orbita-telegram-filters{
+  display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:11px;
+  align-items:end;
+}
+.orbita-telegram-filters label{display:grid;gap:6px;min-width:0}
+.orbita-telegram-filters label>span{font-size:10px;color:#53627F;font-weight:750}
+.orbita-telegram-filters .input{
+  display:block;width:100%;min-width:0;min-height:40px;padding:9px 11px;
+  font:inherit;font-size:12px;border:1px solid #D4DCF1;border-radius:10px;
+  color:#25345C;background:#fff;
+}
+.orbita-telegram-filters .input:focus-visible{outline:2px solid #6357CA;outline-offset:2px}
+.orbita-telegram-state.is-progress{color:#365A95;background:#E1EEFF}
+.orbita-telegram-state.is-muted{color:#626C82;background:#EDF0F5}
+.orbita-telegram-empty{
+  padding:17px 14px;border-radius:11px;border:1px dashed #CFD6E8;
+  color:#657493;line-height:1.65;font-size:12px;text-align:center;
+}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div{
+  background:#192640;border-color:#3D4B6A;
+}
+html[data-orbita-theme="night"] .orbita-telegram-metrics span{color:#E9EDFC}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div:first-child span{color:#F7C476}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div:nth-child(2) span{color:#94DFB4}
+html[data-orbita-theme="night"] .orbita-telegram-metrics>div:nth-child(3) span{color:#BEB0FF}
+html[data-orbita-theme="night"] .orbita-telegram-metrics small,
+html[data-orbita-theme="night"] .orbita-telegram-filters label>span{color:#C1CEE4}
+html[data-orbita-theme="night"] .orbita-telegram-filters .input{
+  background:#17233B;color:#ECF2FF;border-color:#44506D;
+}
+html[data-orbita-theme="night"] .orbita-telegram-empty{
+  border-color:#4A5673;color:#BFCCE5;
+}
+@media(max-width:470px){
+  .orbita-telegram-metrics{gap:6px;margin:14px 0}
+  .orbita-telegram-metrics>div{padding:12px 8px;border-radius:11px}
+  .orbita-telegram-metrics span{font-size:20px}
+  .orbita-telegram-metrics small{font-size:9px}
+  .orbita-telegram-filters{grid-template-columns:1fr;gap:10px}
+  .orbita-telegram-filters .input{min-height:44px}
+}
+
+/* ORBITA 3.7 — Prévia conservadora da conciliação */
+.orbita-cloud-preflight{
+  margin-top:20px;padding:15px 16px;border:1px solid #D8E0F3;
+  border-radius:14px;background:linear-gradient(110deg,#F8F9FF,#FFFFFF);
+}
+.orbita-cloud-preflight strong{
+  font:800 13px/1.5 var(--orbita-heading);color:#243152;
+}
+.orbita-cloud-preflight .small{margin:6px 0 0;line-height:1.6}
+.orbita-cloud-preflight [role="status"]{
+  overflow-wrap:anywhere;color:#445476;line-height:1.75;
+}
+.orbita-cloud-panel .orbita-cloud-actions{gap:10px;flex-wrap:wrap}
+.orbita-cloud-panel .orbita-cloud-actions .btn{min-height:42px}
+html[data-orbita-theme="night"] .orbita-cloud-preflight{
+  border-color:#44506F;background:linear-gradient(110deg,#222B44,#1B263E)
+}
+html[data-orbita-theme="night"] .orbita-cloud-preflight strong{color:#EAF0FF}
+html[data-orbita-theme="night"] .orbita-cloud-preflight [role="status"]{color:#C6D2E7}
+@media(max-width:700px){
+  .orbita-cloud-preflight{padding:13px;border-radius:12px}
+  .orbita-cloud-panel .orbita-cloud-actions{display:grid;grid-template-columns:1fr}
+  .orbita-cloud-panel .orbita-cloud-actions .btn{min-height:44px}
+}
+
+/* ORBITA 3.8 — Retorno da importação unidirecional */
+.orbita-cloud-panel #orbitaCloudImportStatus{
+  margin:11px 0 4px;color:#586582;font-size:11px;line-height:1.65;
+  overflow-wrap:anywhere;
+}
+html[data-orbita-theme="night"] .orbita-cloud-panel #orbitaCloudImportStatus{
+  color:#C4D1E8;
+}

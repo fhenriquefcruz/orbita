@@ -1,12 +1,12 @@
 {
   "name": "ORBITA | Assistente Inteligente",
   "short_name": "ORBITA",
-  "description": "Assessoria pessoal ORBITA — modo local e memória central opcional",
+  "description": "ORBITA — assessoria pessoal inteligente com identidade Aurora e memória autenticada.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#0B1216",
-  "theme_color": "#0B1216",
+  "background_color": "#F4F6FB",
+  "theme_color": "#5146C8",
   "icons": [
     {
       "src": "./assets/orbita-icon.svg",
